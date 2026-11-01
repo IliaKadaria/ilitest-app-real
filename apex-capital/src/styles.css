@@ -683,3 +683,5 @@ button.lb.me { background: rgba(229, 229, 231, 0.05); }
 .tweettoast { position: absolute; left: 10px; right: 10px; top: calc(env(safe-area-inset-top) + 66px); z-index: 85; padding: 12px; border-radius: 16px; background: var(--glass-strong); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border: 1px solid var(--hair-2); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45); cursor: pointer; animation: drop 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .logout { display: block; width: calc(100% - 24px); margin: 4px 12px 28px; min-height: 50px; border-radius: 14px; border: none; background: #d4373f; color: #fff; font-weight: 700; font-size: 15px; letter-spacing: 0.02em; }
 .logout:active { background: #b52d34; }
+.gatelogo { display: block; width: min(260px, 70%); height: auto; margin: 0 0 4px -6px; }
+.hdrmark { width: 20px; height: auto; vertical-align: -4px; margin-right: 6px; }

@@ -23,6 +23,7 @@ import { push, type PushState } from './online/push.ts';
 import { sfx } from './sfx.ts';
 import { money, pnlClass } from './format.ts';
 import { useT } from './i18n.ts';
+import logoMark from './assets/logo-mark.png';
 import { AuthScreen, SetupScreen, Splash } from './components/Gate.tsx';
 import { Guide } from './components/Guide.tsx';
 import { NewsPost } from './components/NewsFeed.tsx';
@@ -307,7 +308,7 @@ export default function App() {
           <Avatar name={g.profile.name} src={g.profile.avatar} size={36} />
         </button>
         <div className="brand">
-          <span className="wordmark">LIQUIDATED</span>
+          <span className="wordmark"><img className="hdrmark" src={logoMark} alt="" />LIQUIDATED</span>
           <span className="divline"><Badge d={div} size={14} /> {div.label} · {g.profile.name}</span>
         </div>
         <div className="eq">
