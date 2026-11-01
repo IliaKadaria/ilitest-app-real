@@ -13,13 +13,15 @@ const OCTAVES = 20; // periods 2s .. ~12 days
 const CAL = 0.42; // calibrated so 1m std ≈ vol1m (see scripts/calibrate.ts)
 
 interface SymState {
+  key: string;
   seed: number;
   amps: number[];
   periods: number[];
 }
 const symState: Record<string, SymState> = {};
-for (const s of SYMBOLS) {
-  if (s.derive) continue;
+function stateOf(s: SymbolDef): SymState {
+  const hit = symState[s.id];
+  if (hit && hit.key === `${s.base}:${s.vol1m}`) return hit;
   const seed = strSeed(s.id) ^ WORLD_SEED;
   const sigmaSec = s.vol1m / Math.sqrt(60);
   const periods: number[] = [];
@@ -29,7 +31,7 @@ for (const s of SYMBOLS) {
     periods.push(p);
     amps.push(sigmaSec * Math.sqrt(p) * CAL);
   }
-  symState[s.id] = { seed, amps, periods };
+  return (symState[s.id] = { seed, amps, periods, key: `${s.base}:${s.vol1m}` });
 }
 
 function volRegime(seed: number, t: number): number {
@@ -38,7 +40,7 @@ function volRegime(seed: number, t: number): number {
 }
 
 function fbm(sym: SymbolDef, t: number): number {
-  const st = symState[sym.id];
+  const st = stateOf(sym);
   const vr = volRegime(st.seed, t);
   let v = 0;
   for (let k = 0; k < OCTAVES; k++) {
@@ -90,6 +92,15 @@ const UP_LINES: Record<string, string[]> = {
   XNIUSD: ['Battery-grade nickel demand beats forecasts', 'Export curbs tighten nickel ore supply'],
   XZNUSD: ['Zinc smelter closures tighten concentrate market', 'Galvanising demand lifts zinc premiums'],
   XPBUSD: ['Lead stocks draw as battery demand firms', 'Recycling plant outage tightens lead supply'],
+  USOIL: ['OPEC+ extends output cuts into next quarter', 'US crude inventories draw 4.1M barrels', 'Pipeline outage tightens Cushing supply'],
+  UKOIL: ['Tanker disruptions lift Brent premium', 'OPEC+ signals tighter supply into winter'],
+  NGAS: ['Cold-weather forecast lifts natural gas demand', 'LNG export terminal restarts after maintenance'],
+  CORN: ['USDA trims corn yield estimate', 'Dry weather in the Midwest lifts corn'],
+  WHEAT: ['Black Sea export disruption lifts wheat', 'Wheat crop condition ratings fall'],
+  SOYBEAN: ['Strong export sales support soybeans', 'Crush margins widen; soybeans bid'],
+  COFFEE: ['Brazil frost risk lifts arabica', 'Certified coffee stocks hit multi-year low'],
+  SUGAR: ['India curbs sugar exports', 'Brazil cane crush falls short of estimates'],
+  COCOA: ['West African cocoa arrivals lag last season', 'Cocoa grindings beat forecasts'],
   NAS100: ['Tech rally broadens as yields ease', 'AI capex optimism lifts US Tech 100 futures', 'Megacap strength pushes NAS100 to session high'],
 };
 const DOWN_LINES: Record<string, string[]> = {
@@ -109,6 +120,15 @@ const DOWN_LINES: Record<string, string[]> = {
   XNIUSD: ['Nickel surplus widens as new capacity starts', 'Stainless steel demand slows sharply'],
   XZNUSD: ['Zinc stocks build on LME warehouses', 'Construction slowdown weighs on zinc'],
   XPBUSD: ['Lead demand softens as battery orders slip', 'LME lead inventories rise for a fifth day'],
+  USOIL: ['US crude inventories build 5.3M barrels', 'OPEC+ members signal higher output'],
+  UKOIL: ['Brent slips as demand outlook softens', 'Refinery run cuts weigh on crude'],
+  NGAS: ['Mild weather forecast weighs on natural gas', 'Gas storage build beats estimates'],
+  CORN: ['USDA raises corn yield estimate', 'Ideal weather boosts corn crop outlook'],
+  WHEAT: ['Record Russian harvest weighs on wheat', 'Wheat export demand softens'],
+  SOYBEAN: ['Soybean export sales disappoint', 'Brazil record soy crop pressures prices'],
+  COFFEE: ['Brazil harvest beats estimates; coffee slides', 'Coffee stocks build at exchange warehouses'],
+  SUGAR: ['Brazil cane crush surges', 'India allows additional sugar exports'],
+  COCOA: ['Cocoa demand cools as grindings fall', 'Improved West African weather pressures cocoa'],
   NAS100: ['Tech selloff deepens as bond yields jump', 'Rotation out of growth stocks drags NAS100'],
 };
 // Single stocks are real listed names on a SIMULATED tape: headlines describe
@@ -120,7 +140,7 @@ const SHOCK_LINE = (s: SymbolDef) =>
 const MACRO_UP = ['US CPI 2.9% y/y vs 3.1% expected', 'FOMC holds; Chair signals cuts ahead', 'US Non-Farm Payrolls +92k vs +180k expected', 'ECB and Fed coordinate liquidity support'];
 const MACRO_DOWN = ['US CPI 3.6% y/y vs 3.2% expected', 'FOMC hikes 25bp in surprise move', 'US 10Y Treasury yield breaks 5.20%', 'US core PCE accelerates to 3.4%'];
 const MACRO_TEASE = ['US CPI release', 'FOMC rate decision', 'US Non-Farm Payrolls', 'US Core PCE release'];
-const SHOCK_TARGETS = ['NVDA', 'TSLA', 'AMD', 'NFLX', 'XAGUSD', 'XPDUSD', 'XNIUSD'];
+const SHOCK_TARGETS = ['NVDA', 'TSLA', 'AMD', 'NFLX', 'XAGUSD', 'XPDUSD', 'XNIUSD', 'NGAS', 'USOIL', 'COCOA'];
 
 /** Weighted pool of instruments that carry their own headlines (crosses inherit from legs). */
 const NEWS_POOL: SymbolDef[] = SYMBOLS.flatMap((s) => Array.from({ length: Math.round((s.newsWeight ?? 1) * 2) }, () => s));

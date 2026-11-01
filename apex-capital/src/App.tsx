@@ -23,6 +23,13 @@ import { push, type PushState } from './online/push.ts';
 import { sfx } from './sfx.ts';
 import { money, pnlClass } from './format.ts';
 import { useT } from './i18n.ts';
+import { AuthScreen, SetupScreen, Splash } from './components/Gate.tsx';
+import { Guide } from './components/Guide.tsx';
+import { NewsPost } from './components/NewsFeed.tsx';
+import { auth, useAuth } from './online/auth.ts';
+import { cloud } from './online/cloud.ts';
+import { liveNews, type LiveNews } from './online/livenews.ts';
+import { customMarkets } from './market/custom.ts';
 
 type Tab = 'trade' | 'chat' | 'wealth' | 'settings';
 interface Toast {
@@ -66,7 +73,9 @@ export default function App() {
   const [reentering, setReentering] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [fx, setFx] = useState<{ kind: FxKind; n: number } | null>(null);
-  const [alias, setAlias] = useState('');
+  const au = useAuth();
+  const [tweet, setTweet] = useState<LiveNews | null>(null);
+  const [settingsKey, setSettingsKey] = useState(0);
   const [pushState, setPushState] = useState<PushState>('off');
   const [profile, setProfile] = useState<string | null>(null);
   const seenNews = useRef<Set<number>>(new Set(recentNews(Date.now() / 1000, 3600).map((e) => e.id)));
@@ -154,6 +163,25 @@ export default function App() {
     [], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  // boot: session check, shared markets, live headlines
+  useEffect(() => {
+    void auth.init();
+    void customMarkets.sync();
+    void liveNews.start();
+    return liveNews.onNew((n) => {
+      if (!settings.s.notify.news) return;
+      setTweet(n);
+      setTimeout(() => setTweet((x) => (x?.id === n.id ? null : x)), 7000);
+      sfx.newsPing();
+      void push.local(n.source, n.headline, n.id);
+    });
+  }, []);
+
+  // cloud autosave after every account change
+  useEffect(() => {
+    if (au.state?.mode === 'online') cloud.save();
+  }, [g.getVersion(), au.state?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // online layers once the profile exists
   useEffect(() => {
     const s = snapshotOf(currentMetrics());
@@ -183,6 +211,7 @@ export default function App() {
     const vis = () => {
       if (document.visibilityState !== 'hidden') return;
       game.flush();
+      void cloud.saveNow();
       push.schedule(game.account, true);
     };
     window.addEventListener('pagehide', save);
@@ -263,23 +292,10 @@ export default function App() {
     setTab('trade');
   };
 
-  // ---------------------------------------------------------------- onboarding
-  if (!g.profile) {
-    const ok = /^[A-Za-z0-9_.-]{2,18}$/.test(alias);
-    return (
-      <div className="app">
-        <div className="onboard">
-          <div className="wordmark">APEX CAPITAL</div>
-          <h1>Your trading account is ready.</h1>
-          <p>Opening balance {money(START_BALANCE)}. 52 instruments across Forex, Metals and Nasdaq with a MetaTrader 5-grade terminal. Grow it through seven tiers. Blow it and the account is frozen for a five-hour credit review.</p>
-          <label className="eyebrow" htmlFor="alias">Username</label>
-          <input id="alias" value={alias} maxLength={18} autoComplete="off" placeholder="e.g. JLaurent" onChange={(e) => setAlias(e.target.value.replace(/[^\w.-]/g, ''))} />
-          <button className="primary" disabled={!ok} onClick={() => { game.setProfile(alias); sfx.cash(); }}>Open account</button>
-          <p className="fine">Simulated markets and funds. Not investment advice.</p>
-        </div>
-      </div>
-    );
-  }
+  // ---------------------------------------------------------------- login → username/password → guide
+  if (!au.ready && !au.state) return <Splash />;
+  if (!au.state || au.signedOut) return <AuthScreen />;
+  if (!au.state.setupDone || !g.profile) return <SetupScreen />;
 
   const div = divisionFor(g.account.balance);
   const chatUnread = c.communities.reduce((s, x) => s + (c.membership(x.id) ? c.unread(x.id) : 0), 0) + so.totalUnread();
@@ -308,7 +324,7 @@ export default function App() {
         {tab === 'trade' && <TradeTab now={now} m={m} sub={sub} onSub={setSub} onShare={setStatement} />}
         {tab === 'chat' && <ChatTab now={now} notify={notify} onOpenSymbol={openSymbol} />}
         {tab === 'wealth' && <WealthTab m={m} onProfile={setProfile} />}
-        {tab === 'settings' && <SettingsTab now={now} notify={notify} pushState={pushState} setPushState={setPushState} />}
+        {tab === 'settings' && <SettingsTab key={settingsKey} now={now} notify={notify} pushState={pushState} setPushState={setPushState} onSymbol={openSymbol} />}
       </div>
 
       <nav className="tabs">
@@ -341,6 +357,12 @@ export default function App() {
 
       {profile && <ProfileSheet id={profile} notify={notify} onClose={() => setProfile(null)} onMessage={() => { setProfile(null); setTab('chat'); }} onOpenGroup={() => { setProfile(null); setTab('chat'); }} />}
       {statement && <FlexCard deal={statement} name={g.profile.name} balance={g.account.balance} onClose={() => setStatement(null)} />}
+      {tweet && (
+        <div className="tweettoast" onClick={() => { setTweet(null); setSettingsKey((k) => k + 1); setTab('settings'); }}>
+          <NewsPost n={tweet} compact />
+        </div>
+      )}
+      {!au.state.guideDone && !frozen && <Guide onGo={(x, s2) => { setTab(x); if (s2) setSub(s2); }} onDone={() => { auth.finishGuide(); setTab('trade'); setSub('quotes'); }} />}
       {frozen && <Lockout now={now} busy={reentering} onReenter={reenter} />}
     </div>
   );

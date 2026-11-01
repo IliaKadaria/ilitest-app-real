@@ -81,7 +81,7 @@ export function Quotes({ now, current, onChart, onOrder }: { now: number; curren
       <div className="qhead">
         <span className={`sess ${open ? '' : 'closed'}`}>
           <i />
-          {open ? `${t('q.open')} · ${cls === 'nasdaq' ? '24/7 simulated venue' : cls === 'metal' ? 'daily break 22:00 UTC' : '24/5'}` : `${t('q.closed')} · ${new Date(nextOpen(probe, now) * 1000).toLocaleString([], { weekday: 'short' })} ${hhmm(nextOpen(probe, now))}`}
+          {open ? `${t('q.open')} · ${cls === 'nasdaq' ? '24/7 simulated venue' : cls === 'futures' ? 'daily break 22:00 UTC' : '24/5'}` : `${t('q.closed')} · ${new Date(nextOpen(probe, now) * 1000).toLocaleString([], { weekday: 'short' })} ${hhmm(nextOpen(probe, now))}`}
         </span>
         <span className="muted" style={{ fontSize: 11 }}>{clock(now)}</span>
       </div>

@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
-import { recentNews, upcomingNews } from '../market/engine.ts';
-import { SYMBOL_MAP } from '../market/symbols.ts';
+import { CLASSES, SYMBOL_MAP, type AssetClass, type Ccy } from '../market/symbols.ts';
+import { customMarkets, useCustomMarkets } from '../market/custom.ts';
+import { auth, useAuth, type Provider } from '../online/auth.ts';
+import { cloud } from '../online/cloud.ts';
+import { NewsFeed } from './NewsFeed.tsx';
 import { START_BALANCE } from '../game/account.ts';
 import { divisionFor } from '../game/tiers.ts';
 import { MAX_ACCOUNTS, game, useGame } from '../game/store.ts';
@@ -9,14 +12,14 @@ import { mail, useMail } from '../game/mail.ts';
 import { push, type PushState } from '../online/push.ts';
 import { social } from '../online/social.ts';
 import { net } from '../online/net.ts';
-import { clock, compactMoney, countdown, hhmm, money } from '../format.ts';
+import { compactMoney, hhmm, money } from '../format.ts';
 import { LANGS, useT } from '../i18n.ts';
 import { isMuted, setMuted, sfx } from '../sfx.ts';
 import { Avatar, PRESETS, fileToAvatar } from './Avatar.tsx';
 import { Badge } from './Badge.tsx';
 import { Icon } from './Icons.tsx';
 
-type Page = null | 'accounts' | 'mail' | 'news' | 'interface' | 'charts' | 'notifications' | 'about' | 'profile';
+type Page = null | 'accounts' | 'mail' | 'news' | 'interface' | 'charts' | 'notifications' | 'about' | 'profile' | 'login' | 'admin';
 type Notify = (title: string, body: string, tone?: 'good' | 'bad' | 'info') => void;
 
 const TOGGLES: [keyof ChartToggles, string, string?][] = [
@@ -52,7 +55,8 @@ const COLORS: [keyof ChartColors, string][] = [
   ['stopsLevel', 'Stops Level'],
 ];
 
-export function SettingsTab({ now, notify, pushState, setPushState }: { now: number; notify: Notify; pushState: PushState; setPushState: (s: PushState) => void }) {
+export function SettingsTab({ now, notify, pushState, setPushState, onSymbol }: { now: number; notify: Notify; pushState: PushState; setPushState: (s: PushState) => void; onSymbol: (s: string) => void }) {
+  const au = useAuth();
   const g = useGame();
   const t = useT();
   const mb = useMail();
@@ -63,7 +67,9 @@ export function SettingsTab({ now, notify, pushState, setPushState }: { now: num
 
   if (page === 'accounts') return <Sub title={t('s.newAccount')} onBack={back}><Accounts notify={notify} /></Sub>;
   if (page === 'mail') return <Sub title={t('s.mailbox')} onBack={back}><Mailbox /></Sub>;
-  if (page === 'news') return <Sub title={t('s.news')} onBack={back}><News now={now} /></Sub>;
+  if (page === 'news') return <Sub title={t('s.news')} onBack={back}><NewsFeed now={now} onSymbol={onSymbol} /></Sub>;
+  if (page === 'login') return <Sub title="Login & cloud save" onBack={back}><LoginInfo notify={notify} /></Sub>;
+  if (page === 'admin') return <Sub title="Admin · Markets" onBack={back}><AdminMarkets notify={notify} /></Sub>;
   if (page === 'interface') return <Sub title={t('s.interface')} onBack={back}><Interface /></Sub>;
   if (page === 'charts') return <Sub title={t('s.charts')} onBack={back}><Charts /></Sub>;
   if (page === 'notifications') return <Sub title={t('s.notifications')} onBack={back}><Notifications state={pushState} setState={setPushState} /></Sub>;
@@ -100,7 +106,11 @@ export function SettingsTab({ now, notify, pushState, setPushState }: { now: num
         {item('charts', <Icon.chart />, t('s.charts'))}
         {item('notifications', <Icon.bell />, t('s.notifications'), <small className="muted">{pushState === 'server' ? 'On' : pushState === 'local' ? 'In-app' : 'Off'}</small>)}
       </div>
-      <div className="menu card">{item('about', <Icon.info />, t('s.about'))}</div>
+      <div className="menu card">
+        {item('login', <Icon.user />, 'Login & cloud save', <small className="muted">{au.state?.mode === 'online' ? providerLabel(au.state.provider) : 'Offline'}</small>)}
+        {au.state?.isAdmin && item('admin', <Icon.lock />, 'Admin · Markets', <small className="muted">{customMarkets.list.length}</small>)}
+        {item('about', <Icon.info />, t('s.about'))}
+      </div>
     </div>
   );
 }
@@ -221,31 +231,6 @@ function Mailbox() {
   );
 }
 
-// -------------------------------------------------------------------- news
-function News({ now }: { now: number }) {
-  const up = upcomingNews(now);
-  const past = recentNews(now, 6 * 3600);
-  return (
-    <>
-      {up.length > 0 && <div className="section"><span className="eyebrow">Coming up</span></div>}
-      {up.map((e) => (
-        <div key={e.id} className="newsrow">
-          <span className="tag sched">{e.kind === 'macro' ? 'CALENDAR' : 'DESK'}</span>
-          <div><b>{e.teaser}</b><small className="muted">in {countdown(e.t0 - now)}</small></div>
-        </div>
-      ))}
-      <div className="section"><span className="eyebrow">Wire · last 6 hours</span><span className="eyebrow">{past.length}</span></div>
-      {past.map((e) => (
-        <div key={e.id} className="newsrow">
-          <span className={`tag ${e.kind === 'shock' ? 'sl' : e.kind === 'macro' ? 'sched' : e.dir > 0 ? 'tp' : 'sl'}`}>{e.kind === 'macro' ? 'MACRO' : e.kind === 'shock' ? 'ALERT' : SYMBOL_MAP[e.symbol ?? '']?.name ?? ''}</span>
-          <div><b>{e.headline}</b><small className="muted">{clock(e.t0)}</small></div>
-        </div>
-      ))}
-      <p className="fine pad">Headlines are generated by the simulation and move simulated prices only.</p>
-    </>
-  );
-}
-
 // -------------------------------------------------------------------- interface
 function Interface() {
   const st = useSettings();
@@ -317,6 +302,7 @@ function Notifications({ state, setState }: { state: PushState; setState: (s: Pu
     ['sl', 'Stop loss filled', ''],
     ['stopout', 'Stop-out / account frozen', ''],
     ['fill', 'Pending order filled', ''],
+    ['news', 'Breaking news', 'Real-world headlines as they land, like posts on X'],
   ];
   const label: Record<PushState, string> = {
     unsupported: 'This browser can’t show notifications. On iPhone: Share → Add to Home Screen, then open Apex from the home screen.',
@@ -337,7 +323,7 @@ function Notifications({ state, setState }: { state: PushState; setState: (s: Pu
         )}
       </div>
       <div className="menu card">
-        {kinds.map(([k, l, s]) => <Toggle key={k} on={st.notify[k]} label={l} sub={s || undefined} onClick={() => { settings.set({ notify: { ...st.notify, [k]: !st.notify[k] } }); push.schedule(game.account, true); }} />)}
+        {kinds.map(([k, l, s]) => <Toggle key={k} on={st.notify[k]} label={l} sub={s || undefined} onClick={() => { settings.set({ notify: { ...st.notify, [k]: !st.notify[k] } }); if (k === 'news') void push.setNewsAlerts(!st.notify[k]); else push.schedule(game.account, true); }} />)}
       </div>
       {push.lastSchedule.length > 0 && (
         <div className="card pad">
@@ -353,10 +339,111 @@ function Notifications({ state, setState }: { state: PushState; setState: (s: Pu
 function About() {
   return (
     <div className="pad stack">
+      <button onClick={() => auth.replayGuide()}>Replay the step-by-step guide</button>
       <div className="wordmark">APEX CAPITAL</div>
       <p className="muted">MetaTrader 5-style day-trading game. 52 instruments across Forex, Metals and Nasdaq, simulated deterministically so every player trades the same market.</p>
       <p className="fine">Simulated markets and funds. Not investment advice. Stock tickers are used for realism only; their prices and headlines are generated by the game.</p>
       <p className="fine">Charts by TradingView Lightweight Charts™.</p>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------- login & cloud
+const providerLabel = (p: Provider) => ({ google: 'Google', github: 'GitHub', twitter: 'X', email: 'E-mail', offline: 'Offline' })[p] ?? p;
+
+function LoginInfo({ notify }: { notify: Notify }) {
+  const a = useAuth();
+  const s = a.state!;
+  const [, force] = useState(0);
+  cloud.listen(() => force((x) => x + 1));
+  return (
+    <div className="pad stack">
+      <div className="card pad">
+        <div className="eyebrow">Signed in with</div>
+        <b style={{ fontSize: 16 }}>{providerLabel(s.provider)}</b>
+        {s.email && <div className="muted" style={{ fontSize: 13 }}>{s.email}</div>}
+        {s.isAdmin && <div className="tag tp" style={{ display: 'inline-block', margin: '8px 0 0' }}>ADMIN</div>}
+      </div>
+      <div className="card pad">
+        <div className="eyebrow">Cloud save</div>
+        {s.mode === 'online' ? (
+          <>
+            <p className="muted" style={{ fontSize: 13, margin: '6px 0 10px' }}>
+              Your accounts, history and settings sync automatically. {cloud.lastSaved ? `Last saved ${new Date(cloud.lastSaved).toLocaleTimeString()}.` : ''} {cloud.status === 'error' ? 'Last sync failed; it will retry.' : ''}
+            </p>
+            <button onClick={() => void cloud.saveNow().then(() => notify('Saved to cloud', 'Your progress is backed up.', 'good'))}>Save now</button>
+          </>
+        ) : (
+          <p className="muted" style={{ fontSize: 13, margin: '6px 0 0' }}>Offline account: everything is saved on this device. Sign in online to back it up and play on other devices.</p>
+        )}
+      </div>
+      {s.mode === 'online' ? (
+        <button className="ghost" onClick={() => void a.signOut()}>Sign out</button>
+      ) : (
+        a.online && <button className="primary" onClick={() => a.signedOutView()}>Sign in to back up this account</button>
+      )}
+      <p className="fine">You stay logged in on this device. Trading keeps working offline; changes sync when you’re back online.</p>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------- admin: markets
+function AdminMarkets({ notify }: { notify: Notify }) {
+  const cm = useCustomMarkets();
+  const g = useGame();
+  const a = useAuth();
+  const online = a.state?.mode === 'online' && net.status === 'live';
+  const [f, setF] = useState({ id: '', name: '', desc: '', cls: 'futures' as AssetClass, base: '', vol: 'med', digits: '2', contract: '100', leverage: '100', spread: '', ccy: 'USD' as Ccy });
+  const set = (k: keyof typeof f, v: string) => setF({ ...f, [k]: v });
+  const VOL: Record<string, number> = { low: 0.0003, med: 0.0008, high: 0.0018, wild: 0.004 };
+  const submit = async () => {
+    const base = Number(f.base);
+    const digits = Math.max(0, Math.min(6, Number(f.digits) || 0));
+    const e = await customMarkets.add({
+      id: f.id.toUpperCase(), name: f.name || f.id.toUpperCase(), desc: f.desc, cls: f.cls, base, vol1m: VOL[f.vol], digits,
+      contract: Number(f.contract), leverage: Number(f.leverage), spread: Number(f.spread) || Math.max(Math.pow(10, -digits), base * 0.0002), quoteCcy: f.ccy,
+    }, g.profile, online);
+    if (e) notify('Market not added', e, 'bad');
+    else {
+      notify('Market added', `${f.id.toUpperCase()} is live in ${CLASSES.includes(f.cls) ? f.cls : ''}`, 'good');
+      setF({ ...f, id: '', name: '', desc: '', base: '', spread: '' });
+    }
+  };
+  return (
+    <div className="pad stack">
+      <div className="muted" style={{ fontSize: 13 }}>{online ? 'Markets you add appear for every player instantly.' : 'Offline: markets you add are only on this device until you are back online.'}</div>
+      <div className="card pad stack" style={{ gap: 10 }}>
+        <b>Add a market</b>
+        <div className="row2">
+          <label className="field"><span>Category</span><select value={f.cls} onChange={(e) => set('cls', e.target.value)}>{CLASSES.map((c) => <option key={c} value={c}>{c === 'fx' ? 'Forex' : c === 'futures' ? 'Futures' : 'Nasdaq'}</option>)}</select></label>
+          <label className="field"><span>Symbol</span><input value={f.id} maxLength={10} placeholder="e.g. PLTR" onChange={(e) => set('id', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} /></label>
+        </div>
+        <div className="row2">
+          <label className="field"><span>Display name</span><input value={f.name} maxLength={24} placeholder="Same as symbol" onChange={(e) => set('name', e.target.value)} /></label>
+          <label className="field"><span>Start price</span><input className="num" inputMode="decimal" value={f.base} onChange={(e) => set('base', e.target.value.replace(',', '.'))} /></label>
+        </div>
+        <label className="field"><span>Description</span><input value={f.desc} maxLength={80} placeholder="e.g. Palantir Technologies" onChange={(e) => set('desc', e.target.value)} /></label>
+        <div className="row2">
+          <label className="field"><span>Volatility</span><select value={f.vol} onChange={(e) => set('vol', e.target.value)}><option value="low">Low (major FX)</option><option value="med">Medium (index / metal)</option><option value="high">High (single stock)</option><option value="wild">Wild (meme)</option></select></label>
+          <label className="field"><span>Quote currency</span><select value={f.ccy} onChange={(e) => set('ccy', e.target.value)}>{['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD'].map((c) => <option key={c}>{c}</option>)}</select></label>
+        </div>
+        <div className="row2" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+          <label className="field"><span>Digits</span><input className="num" inputMode="numeric" value={f.digits} onChange={(e) => set('digits', e.target.value.replace(/\D/g, ''))} /></label>
+          <label className="field"><span>Contract</span><input className="num" inputMode="decimal" value={f.contract} onChange={(e) => set('contract', e.target.value)} /></label>
+          <label className="field"><span>Leverage</span><input className="num" inputMode="numeric" value={f.leverage} onChange={(e) => set('leverage', e.target.value.replace(/\D/g, ''))} /></label>
+        </div>
+        <label className="field"><span>Spread (price units, optional)</span><input className="num" inputMode="decimal" value={f.spread} placeholder="auto" onChange={(e) => set('spread', e.target.value)} /></label>
+        <button className="primary" disabled={!f.id || !(Number(f.base) > 0)} onClick={() => void submit()}>Add market</button>
+      </div>
+      <div className="eyebrow">Custom markets · {cm.list.length}</div>
+      {!cm.list.length && <div className="muted" style={{ fontSize: 13 }}>None yet.</div>}
+      {cm.list.map((m) => (
+        <div key={m.id} className="objrow">
+          <span><b>{m.name}</b> <small className="muted">{m.id} · {m.cls} · {SYMBOL_MAP[m.id] ? 'live' : '—'}</small></span>
+          <button className="ghost sm" onClick={() => void customMarkets.remove(m.id, g.profile, online).then((e) => e && notify('Not removed', e, 'bad'))}>Remove</button>
+        </div>
+      ))}
+      <p className="fine">Price and volatility are fixed once a market exists: changing them would rewrite every player’s chart history.</p>
     </div>
   );
 }

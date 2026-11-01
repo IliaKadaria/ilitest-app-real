@@ -85,10 +85,18 @@ class Push {
       if (!error) {
         this.serverReady = true;
         this.state = 'server';
+        void this.setNewsAlerts(settings.s.notify.news);
       }
     } catch {
       /* push service unavailable (e.g. desktop Safari without install): keep local */
     }
+  }
+
+  /** Server-side opt-in for breaking-news pushes. */
+  async setNewsAlerts(on: boolean) {
+    const sb = await net.client();
+    if (!sb || !this.me || !this.serverReady) return;
+    await sb.rpc('set_news_alerts', { p_id: this.me.id, p_secret: this.me.secret, p_on: on });
   }
 
   /** In-app event while the page is hidden (still alive in the background). */
@@ -134,7 +142,7 @@ class Push {
 
   private async sendSchedule(items: ForecastItem[]) {
     const kinds = settings.s.notify;
-    const filtered = items.filter((i) => kinds[i.kind]);
+    const filtered = items.filter((i) => kinds[i.kind as keyof typeof kinds]);
     this.lastSchedule = filtered;
     const sb = await net.client();
     if (!sb || !this.me) return;

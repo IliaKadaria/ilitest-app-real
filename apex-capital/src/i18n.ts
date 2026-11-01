@@ -17,7 +17,7 @@ type Dict = Record<string, string>;
 const en: Dict = {
   'nav.trade': 'Trade', 'nav.chat': 'Chat', 'nav.wealth': 'Wealth', 'nav.settings': 'Settings',
   'sub.quotes': 'Quotes', 'sub.chart': 'Chart', 'sub.trade': 'Trade', 'sub.history': 'History',
-  'cls.fx': 'Forex', 'cls.metal': 'Metals', 'cls.nasdaq': 'Nasdaq',
+  'cls.fx': 'Forex', 'cls.futures': 'Futures', 'cls.nasdaq': 'Nasdaq',
   'q.order': 'New order', 'q.chart': 'Open chart', 'q.delete': 'Delete', 'q.add': 'Add symbol', 'q.search': 'Search symbols', 'q.swipe': 'Swipe a symbol left for actions', 'q.open': 'Open', 'q.closed': 'Closed',
   't.balance': 'Balance', 't.equity': 'Equity', 't.margin': 'Margin', 't.free': 'Free margin', 't.level': 'Margin level', 't.positions': 'Positions', 't.orders': 'Orders', 't.new': 'New order', 't.noPos': 'No open positions', 't.noPosSub': 'Open a trade from Quotes, the Chart or New order.', 't.close': 'Close', 't.modify': 'Modify', 't.cancel': 'Cancel order', 't.closeAll': 'Close all', 't.closeWin': 'Close profitable', 't.closeLoss': 'Close losing', 't.profit': 'Profit',
   'o.type': 'Order type', 'o.market': 'Market Execution', 'o.volume': 'Volume', 'o.price': 'Price', 'o.stopLimit': 'Stop Limit price', 'o.sl': 'Stop Loss', 'o.tp': 'Take Profit', 'o.deviation': 'Deviation (points)', 'o.expiration': 'Expiration', 'o.gtc': 'GTC', 'o.today': 'Today', 'o.specified': 'Specified', 'o.sell': 'Sell by Market', 'o.buy': 'Buy by Market', 'o.place': 'Place', 'o.fill': 'Fill policy',
@@ -31,7 +31,7 @@ const en: Dict = {
 const es: Dict = {
   'nav.trade': 'Operar', 'nav.chat': 'Chat', 'nav.wealth': 'Riqueza', 'nav.settings': 'Ajustes',
   'sub.quotes': 'Cotizaciones', 'sub.chart': 'Gráfico', 'sub.trade': 'Operaciones', 'sub.history': 'Historial',
-  'cls.fx': 'Forex', 'cls.metal': 'Metales', 'cls.nasdaq': 'Nasdaq',
+  'cls.fx': 'Forex', 'cls.futures': 'Futuros', 'cls.nasdaq': 'Nasdaq',
   'q.order': 'Nueva orden', 'q.chart': 'Abrir gráfico', 'q.delete': 'Eliminar', 'q.add': 'Añadir símbolo', 'q.search': 'Buscar símbolos', 'q.swipe': 'Desliza un símbolo a la izquierda', 'q.open': 'Abierto', 'q.closed': 'Cerrado',
   't.balance': 'Balance', 't.equity': 'Capital', 't.margin': 'Margen', 't.free': 'Margen libre', 't.level': 'Nivel de margen', 't.positions': 'Posiciones', 't.orders': 'Órdenes', 't.new': 'Nueva orden', 't.noPos': 'Sin posiciones abiertas', 't.noPosSub': 'Abre una operación desde Cotizaciones, el Gráfico o Nueva orden.', 't.close': 'Cerrar', 't.modify': 'Modificar', 't.cancel': 'Cancelar orden', 't.closeAll': 'Cerrar todo', 't.closeWin': 'Cerrar ganadoras', 't.closeLoss': 'Cerrar perdedoras', 't.profit': 'Beneficio',
   'o.type': 'Tipo de orden', 'o.market': 'Ejecución de mercado', 'o.volume': 'Volumen', 'o.price': 'Precio', 'o.stopLimit': 'Precio Stop Limit', 'o.sl': 'Stop Loss', 'o.tp': 'Take Profit', 'o.deviation': 'Desviación (puntos)', 'o.expiration': 'Vencimiento', 'o.gtc': 'GTC', 'o.today': 'Hoy', 'o.specified': 'Especificado', 'o.sell': 'Vender a mercado', 'o.buy': 'Comprar a mercado', 'o.place': 'Colocar', 'o.fill': 'Política de llenado',
@@ -45,7 +45,7 @@ const es: Dict = {
 const fr: Dict = {
   'nav.trade': 'Trading', 'nav.chat': 'Chat', 'nav.wealth': 'Patrimoine', 'nav.settings': 'Réglages',
   'sub.quotes': 'Cotations', 'sub.chart': 'Graphique', 'sub.trade': 'Trading', 'sub.history': 'Historique',
-  'cls.fx': 'Forex', 'cls.metal': 'Métaux', 'cls.nasdaq': 'Nasdaq',
+  'cls.fx': 'Forex', 'cls.futures': 'Futures', 'cls.nasdaq': 'Nasdaq',
   'q.order': 'Nouvel ordre', 'q.chart': 'Ouvrir le graphique', 'q.delete': 'Supprimer', 'q.add': 'Ajouter un symbole', 'q.search': 'Rechercher', 'q.swipe': 'Glissez un symbole vers la gauche', 'q.open': 'Ouvert', 'q.closed': 'Fermé',
   't.balance': 'Solde', 't.equity': 'Fonds propres', 't.margin': 'Marge', 't.free': 'Marge libre', 't.level': 'Niveau de marge', 't.positions': 'Positions', 't.orders': 'Ordres', 't.new': 'Nouvel ordre', 't.noPos': 'Aucune position ouverte', 't.noPosSub': 'Ouvrez un trade depuis Cotations, le Graphique ou Nouvel ordre.', 't.close': 'Clôturer', 't.modify': 'Modifier', 't.cancel': 'Annuler l’ordre', 't.closeAll': 'Tout clôturer', 't.closeWin': 'Clôturer gagnantes', 't.closeLoss': 'Clôturer perdantes', 't.profit': 'Profit',
   'o.type': 'Type d’ordre', 'o.market': 'Exécution au marché', 'o.volume': 'Volume', 'o.price': 'Prix', 'o.stopLimit': 'Prix Stop Limit', 'o.sl': 'Stop Loss', 'o.tp': 'Take Profit', 'o.deviation': 'Déviation (points)', 'o.expiration': 'Expiration', 'o.gtc': 'GTC', 'o.today': 'Aujourd’hui', 'o.specified': 'Spécifiée', 'o.sell': 'Vendre au marché', 'o.buy': 'Acheter au marché', 'o.place': 'Placer', 'o.fill': 'Politique de remplissage',
@@ -59,7 +59,7 @@ const fr: Dict = {
 const de: Dict = {
   'nav.trade': 'Handel', 'nav.chat': 'Chat', 'nav.wealth': 'Vermögen', 'nav.settings': 'Einstellungen',
   'sub.quotes': 'Kurse', 'sub.chart': 'Chart', 'sub.trade': 'Handel', 'sub.history': 'Verlauf',
-  'cls.fx': 'Forex', 'cls.metal': 'Metalle', 'cls.nasdaq': 'Nasdaq',
+  'cls.fx': 'Forex', 'cls.futures': 'Futures', 'cls.nasdaq': 'Nasdaq',
   'q.order': 'Neue Order', 'q.chart': 'Chart öffnen', 'q.delete': 'Löschen', 'q.add': 'Symbol hinzufügen', 'q.search': 'Symbole suchen', 'q.swipe': 'Symbol nach links wischen', 'q.open': 'Offen', 'q.closed': 'Geschlossen',
   't.balance': 'Kontostand', 't.equity': 'Equity', 't.margin': 'Margin', 't.free': 'Freie Margin', 't.level': 'Margin-Level', 't.positions': 'Positionen', 't.orders': 'Orders', 't.new': 'Neue Order', 't.noPos': 'Keine offenen Positionen', 't.noPosSub': 'Eröffne einen Trade über Kurse, Chart oder Neue Order.', 't.close': 'Schließen', 't.modify': 'Ändern', 't.cancel': 'Order löschen', 't.closeAll': 'Alle schließen', 't.closeWin': 'Gewinner schließen', 't.closeLoss': 'Verlierer schließen', 't.profit': 'Gewinn',
   'o.type': 'Ordertyp', 'o.market': 'Market Execution', 'o.volume': 'Volumen', 'o.price': 'Preis', 'o.stopLimit': 'Stop-Limit-Preis', 'o.sl': 'Stop Loss', 'o.tp': 'Take Profit', 'o.deviation': 'Abweichung (Punkte)', 'o.expiration': 'Ablauf', 'o.gtc': 'GTC', 'o.today': 'Heute', 'o.specified': 'Festgelegt', 'o.sell': 'Verkaufen (Markt)', 'o.buy': 'Kaufen (Markt)', 'o.place': 'Platzieren', 'o.fill': 'Füllrichtlinie',
@@ -73,7 +73,7 @@ const de: Dict = {
 const pt: Dict = {
   'nav.trade': 'Negociar', 'nav.chat': 'Chat', 'nav.wealth': 'Patrimônio', 'nav.settings': 'Ajustes',
   'sub.quotes': 'Cotações', 'sub.chart': 'Gráfico', 'sub.trade': 'Negociação', 'sub.history': 'Histórico',
-  'cls.fx': 'Forex', 'cls.metal': 'Metais', 'cls.nasdaq': 'Nasdaq',
+  'cls.fx': 'Forex', 'cls.futures': 'Futuros', 'cls.nasdaq': 'Nasdaq',
   'q.order': 'Nova ordem', 'q.chart': 'Abrir gráfico', 'q.delete': 'Excluir', 'q.add': 'Adicionar símbolo', 'q.search': 'Buscar símbolos', 'q.swipe': 'Deslize um símbolo para a esquerda', 'q.open': 'Aberto', 'q.closed': 'Fechado',
   't.balance': 'Saldo', 't.equity': 'Capital', 't.margin': 'Margem', 't.free': 'Margem livre', 't.level': 'Nível de margem', 't.positions': 'Posições', 't.orders': 'Ordens', 't.new': 'Nova ordem', 't.noPos': 'Sem posições abertas', 't.noPosSub': 'Abra uma operação em Cotações, no Gráfico ou em Nova ordem.', 't.close': 'Fechar', 't.modify': 'Modificar', 't.cancel': 'Cancelar ordem', 't.closeAll': 'Fechar tudo', 't.closeWin': 'Fechar lucrativas', 't.closeLoss': 'Fechar perdedoras', 't.profit': 'Lucro',
   'o.type': 'Tipo de ordem', 'o.market': 'Execução a mercado', 'o.volume': 'Volume', 'o.price': 'Preço', 'o.stopLimit': 'Preço Stop Limit', 'o.sl': 'Stop Loss', 'o.tp': 'Take Profit', 'o.deviation': 'Desvio (pontos)', 'o.expiration': 'Expiração', 'o.gtc': 'GTC', 'o.today': 'Hoje', 'o.specified': 'Especificada', 'o.sell': 'Vender a mercado', 'o.buy': 'Comprar a mercado', 'o.place': 'Enviar', 'o.fill': 'Política de preenchimento',
@@ -87,7 +87,7 @@ const pt: Dict = {
 const id: Dict = {
   'nav.trade': 'Trading', 'nav.chat': 'Obrolan', 'nav.wealth': 'Kekayaan', 'nav.settings': 'Pengaturan',
   'sub.quotes': 'Kuotasi', 'sub.chart': 'Grafik', 'sub.trade': 'Trading', 'sub.history': 'Riwayat',
-  'cls.fx': 'Forex', 'cls.metal': 'Logam', 'cls.nasdaq': 'Nasdaq',
+  'cls.fx': 'Forex', 'cls.futures': 'Futures', 'cls.nasdaq': 'Nasdaq',
   'q.order': 'Order baru', 'q.chart': 'Buka grafik', 'q.delete': 'Hapus', 'q.add': 'Tambah simbol', 'q.search': 'Cari simbol', 'q.swipe': 'Geser simbol ke kiri untuk aksi', 'q.open': 'Buka', 'q.closed': 'Tutup',
   't.balance': 'Saldo', 't.equity': 'Ekuitas', 't.margin': 'Margin', 't.free': 'Margin bebas', 't.level': 'Level margin', 't.positions': 'Posisi', 't.orders': 'Order', 't.new': 'Order baru', 't.noPos': 'Tidak ada posisi terbuka', 't.noPosSub': 'Buka trade dari Kuotasi, Grafik, atau Order baru.', 't.close': 'Tutup', 't.modify': 'Ubah', 't.cancel': 'Batalkan order', 't.closeAll': 'Tutup semua', 't.closeWin': 'Tutup yang profit', 't.closeLoss': 'Tutup yang rugi', 't.profit': 'Profit',
   'o.type': 'Jenis order', 'o.market': 'Eksekusi pasar', 'o.volume': 'Volume', 'o.price': 'Harga', 'o.stopLimit': 'Harga Stop Limit', 'o.sl': 'Stop Loss', 'o.tp': 'Take Profit', 'o.deviation': 'Deviasi (poin)', 'o.expiration': 'Kedaluwarsa', 'o.gtc': 'GTC', 'o.today': 'Hari ini', 'o.specified': 'Ditentukan', 'o.sell': 'Jual di pasar', 'o.buy': 'Beli di pasar', 'o.place': 'Pasang', 'o.fill': 'Kebijakan pengisian',

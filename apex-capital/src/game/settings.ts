@@ -67,7 +67,7 @@ export interface Settings {
   lang: Lang;
   theme: Theme;
   pushEnabled: boolean;
-  notify: { tp: boolean; sl: boolean; stopout: boolean; fill: boolean };
+  notify: { tp: boolean; sl: boolean; stopout: boolean; fill: boolean; news: boolean };
   chartType: ChartType;
   tf: number;
   sym: string;
@@ -125,7 +125,7 @@ const DEFAULTS: Settings = {
   lang: 'en',
   theme: 'dark',
   pushEnabled: false,
-  notify: { tp: true, sl: true, stopout: true, fill: true },
+  notify: { tp: true, sl: true, stopout: true, fill: true, news: true },
   chartType: 'candles',
   tf: 60,
   sym: 'XAUUSD',
@@ -145,7 +145,13 @@ function loadSettings(): Settings {
     const raw = getItem(KEY);
     if (!raw) return DEFAULTS;
     const s = JSON.parse(raw) as Partial<Settings>;
-    const watch = { ...defaultWatch(), ...(s.watch ?? {}) };
+    const saved = (s.watch ?? {}) as Record<string, string[]>;
+    if (saved.metal && !saved.futures) {
+      // v2 called this category "metal": keep the user's list and add the new futures
+      saved.futures = [...saved.metal, ...defaultWatch().futures.filter((id) => !saved.metal.includes(id))];
+      delete saved.metal;
+    }
+    const watch = { ...defaultWatch(), ...saved } as Record<AssetClass, string[]>;
     for (const c of CLASSES) watch[c] = watch[c].filter((id) => SYMBOL_MAP[id]?.cls === c);
     return {
       ...DEFAULTS,

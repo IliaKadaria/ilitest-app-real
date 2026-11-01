@@ -1,6 +1,7 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
 import { NPC_NAMES, NPC_SLOT, npcBalance, npcProfit, npcTradeForSlot } from './npc.ts';
+import { getClient, hasServer } from './supabase.ts';
 
 export type FeedItem =
   | { kind: 'open'; key: string; name: string; sym: string; side: 1 | -1; lots: number; at: number; npc: boolean; me?: boolean }
@@ -68,15 +69,13 @@ interface FloorRow {
   created_at: string;
 }
 
-const URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 const BOARD_WINDOW_MS = 7 * 86400_000;
 const SYNC_EVERY_MS = 10_000;
 
 type Listener = () => void;
 
 class Net {
-  mode: 'online' | 'solo' = URL && KEY ? 'online' : 'solo';
+  mode: 'online' | 'solo' = hasServer ? 'online' : 'solo';
   status: 'connecting' | 'live' | 'offline' = this.mode === 'online' ? 'connecting' : 'offline';
   peers: Peer[] = [];
   feed: FeedItem[] = [];
@@ -128,12 +127,8 @@ class Net {
   }
 
   private async connect() {
-    const { createClient } = await import('@supabase/supabase-js');
+    const sb = await getClient()!;
     if (this.sb || !this.snap) return;
-    const sb = createClient(URL!, KEY!, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      realtime: { params: { eventsPerSecond: 10 } },
-    });
     this.sb = sb;
 
     // 1) register / claim our player row before posting anything

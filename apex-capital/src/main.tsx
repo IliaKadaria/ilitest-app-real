@@ -1,3 +1,5 @@
+// Custom (admin) markets must be registered before the game store loads saved positions.
+import './market/custom.ts';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';

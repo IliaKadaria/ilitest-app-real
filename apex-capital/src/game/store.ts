@@ -185,6 +185,12 @@ class GameStore {
     setItem(PROFILE_KEY, JSON.stringify(p));
     this.bump();
   }
+  /** Take over a profile that already exists on the server (same login on a new device). */
+  adoptProfile(p: Profile) {
+    this.profile = p;
+    setItem(PROFILE_KEY, JSON.stringify(p));
+    this.bump();
+  }
   setAvatar(avatar: string | undefined) {
     if (!this.profile) return;
     this.profile = { ...this.profile, avatar };
