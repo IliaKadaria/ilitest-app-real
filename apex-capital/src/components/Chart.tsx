@@ -199,8 +199,14 @@ export function Chart(props: Props) {
     if (t === null || pr === null || pr === undefined) return;
     const color = tl === 'fibo' ? '#d6b26e' : tl === 'rect' ? '#7aa7ff' : '#e5e5e7';
     if (!TWO_POINT.includes(tl)) {
-      const label = tl === 'text' ? window.prompt('Text label', 'Note')?.slice(0, 40) : undefined;
-      if (tl === 'text' && !label) return;
+      let label: string | undefined;
+      if (tl === 'text') {
+        try {
+          label = (window.prompt('Text label', 'Note') ?? 'Note').slice(0, 40) || 'Note';
+        } catch {
+          label = 'Note'; // prompt() is blocked in sandboxed frames
+        }
+      }
       propsRef.current.onPlace({ type: tl, t1: t, p1: pr, color, label });
       return;
     }
