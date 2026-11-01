@@ -366,7 +366,7 @@ function About() {
 }
 
 // -------------------------------------------------------------------- login & cloud
-const providerLabel = (p: Provider) => ({ google: 'Google', github: 'GitHub', twitter: 'X', email: 'E-mail', offline: 'Offline' })[p] ?? p;
+const providerLabel = (p: Provider) => ({ google: 'Google', github: 'GitHub', twitter: 'X', email: 'E-mail', offline: 'Offline', claude: 'Claude account' })[p] ?? p;
 
 function LoginInfo({ notify }: { notify: Notify }) {
   const a = useAuth();
@@ -397,7 +397,7 @@ function LoginInfo({ notify }: { notify: Notify }) {
       {s.mode === 'online' ? (
         <button className="ghost" onClick={() => void a.signOut()}>Sign out</button>
       ) : (
-        a.online && <button className="primary" onClick={() => a.signedOutView()}>Sign in to back up this account</button>
+        (a.online || a.claudeAvailable) && <button className="primary" onClick={() => a.signedOutView()}>Sign in to back up this account</button>
       )}
       <p className="fine">You stay logged in on this device. Trading keeps working offline; changes sync when you’re back online.</p>
     </div>
@@ -409,7 +409,7 @@ function AdminMarkets({ notify }: { notify: Notify }) {
   const cm = useCustomMarkets();
   const g = useGame();
   const a = useAuth();
-  const online = a.state?.mode === 'online' && net.status === 'live';
+  const online = a.state?.mode === 'online' && (net.status === 'live' || a.state.provider === 'claude');
   const [f, setF] = useState({ id: '', name: '', desc: '', cls: 'futures' as AssetClass, base: '', vol: 'med', digits: '2', contract: '100', leverage: '100', spread: '', ccy: 'USD' as Ccy });
   const set = (k: keyof typeof f, v: string) => setF({ ...f, [k]: v });
   const VOL: Record<string, number> = { low: 0.0003, med: 0.0008, high: 0.0018, wild: 0.004 };

@@ -685,3 +685,7 @@ button.lb.me { background: rgba(229, 229, 231, 0.05); }
 .logout:active { background: #b52d34; }
 .gatelogo { display: block; width: min(260px, 70%); height: auto; margin: 0 0 4px -6px; }
 .hdrmark { width: 20px; height: auto; vertical-align: -4px; margin-right: 6px; }
+.gatesec { display: flex; text-align: right; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--mute); }
+.gatesec b { white-space: nowrap; font-size: 13px; color: var(--text); letter-spacing: 0.02em; }
+.authbtn.primaryauth { background: var(--platinum); color: var(--obsidian); border: none; }
+.authbtn:disabled { opacity: 0.45; }

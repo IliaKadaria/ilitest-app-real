@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { getItem, setItem } from '../storage.ts';
 import { registerCustom, unregisterCustom, type CustomMarket } from './symbols.ts';
 import { getClient } from '../online/supabase.ts';
+import { claudeCaps, deleteMarket, isArtifactBuild, putMarket } from '../online/claudeCloud.ts';
 
 // Admin-created markets. Cached locally and registered synchronously at boot
 // (main.tsx imports this first) so saved positions on them survive reloads.
@@ -51,6 +52,11 @@ class CustomMarkets {
       });
   }
 
+  /** Rows from the artifact's shared `markets` collection. */
+  setFromRows(rows: Record<string, unknown>[]) {
+    this.apply(rows.map(fromRow).filter((m) => !validate(m)));
+  }
+
   /** Pull the shared list (and keep it live). */
   async sync() {
     const c = getClient();
@@ -67,6 +73,17 @@ class CustomMarkets {
   async add(m: CustomMarket, me: { id: string; secret: string } | null, online: boolean): Promise<string | null> {
     const err = validate(m);
     if (err) return err;
+    if (isArtifactBuild) {
+      const cc = await claudeCaps();
+      if (cc?.isOwner) {
+        try {
+          await putMarket(cc, toRow(m));
+          return null;
+        } catch {
+          return 'Could not save the market to the shared list.';
+        }
+      }
+    }
     if (online && me) {
       const sb = await getClient();
       if (!sb) return 'Server unavailable.';
@@ -80,6 +97,17 @@ class CustomMarkets {
   }
 
   async remove(id: string, me: { id: string; secret: string } | null, online: boolean): Promise<string | null> {
+    if (isArtifactBuild) {
+      const cc = await claudeCaps();
+      if (cc?.isOwner) {
+        try {
+          await deleteMarket(cc, id);
+          return null;
+        } catch {
+          return 'Could not remove the market.';
+        }
+      }
+    }
     if (online && me) {
       const sb = await getClient();
       if (!sb) return 'Server unavailable.';

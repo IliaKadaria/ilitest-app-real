@@ -21,6 +21,10 @@ const Mail = () => (
   <svg viewBox="0 0 24 24" className="brandico"><rect x="3.5" y="5.5" width="17" height="13" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M4 7l8 6 8-6" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
 );
 
+const Claude = () => (
+  <svg viewBox="0 0 24 24" className="brandico"><path fill="#D97757" d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2Zm6.5 11l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6Z" /></svg>
+);
+
 export function AuthScreen() {
   const a = useAuth();
   const g = useGame();
@@ -45,22 +49,29 @@ export function AuthScreen() {
 
         {mode === 'choose' ? (
           <div className="gatebtns">
+            <div className="gatesec"><b>Play online</b><span>Cloud save · live leaderboard · friends</span></div>
+            {a.claudeAvailable !== false && !a.online && (
+              <button className="authbtn primaryauth" disabled={a.busy || a.claudeAvailable === null} onClick={() => void a.claudeSignIn()}>
+                <Claude /> {a.claudeAvailable === null ? 'Checking your account…' : 'Continue with Claude account'}
+              </button>
+            )}
             <button className="authbtn" disabled={a.busy || !a.online} onClick={() => void a.oauth('google')}><G /> Continue with Google</button>
             <button className="authbtn" disabled={a.busy || !a.online} onClick={() => void a.oauth('github')}><GH /> Continue with GitHub</button>
             <button className="authbtn" disabled={a.busy || !a.online} onClick={() => void a.oauth('twitter')}><X /> Continue with X</button>
             <button className="authbtn" disabled={a.busy || !a.online} onClick={() => setMode('email')}><Mail /> Continue with e-mail</button>
-            {!a.online && <div className="gatenote">Online sign-in isn’t available here. Play offline — your progress is saved on this device.</div>}
+            {!a.online && <div className="gatenote">{a.claudeAvailable !== false ? 'In this preview, play online with your Claude account. Google, GitHub, X and e-mail sign-in work in the installed app.' : 'Google, GitHub, X and e-mail sign-in work in the installed app.'}</div>}
             <div className="ordiv"><span>or</span></div>
+            <div className="gatesec"><b>Play offline</b><span>No account needed · progress stays on this device</span></div>
             {canOffline ? (
               <div className="stack" style={{ gap: 8 }}>
                 <input type="password" placeholder={`Password for ${g.profile!.name}`} value={unlock} onChange={(e) => setUnlock(e.target.value)} />
                 {unlockErr && <div className="warnline">{unlockErr}</div>}
-                <button className="ghost" onClick={async () => {
+                <button className="authbtn" onClick={async () => {
                   if (await a.unlockOffline(unlock)) { a.dismissSignedOut(); sfx.cash(); } else setUnlockErr('Wrong password.');
                 }}>Continue offline as {g.profile!.name}</button>
               </div>
             ) : (
-              <button className="ghost" onClick={() => { a.playOffline(); a.dismissSignedOut(); sfx.tap(); }}>Play offline</button>
+              <button className="authbtn" onClick={() => { a.playOffline(); a.dismissSignedOut(); sfx.tap(); }}>Play offline</button>
             )}
           </div>
         ) : (

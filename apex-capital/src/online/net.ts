@@ -237,6 +237,7 @@ class Net {
   /** Update the local snapshot; pushes to the server at most every 10s unless forced. */
   update(snap: Snapshot, force = false) {
     this.snap = snap;
+    this.onSnapshot?.(snap);
     this.trackMe();
     if (!this.sb) return;
     if (force || Date.now() - this.lastSyncAt > SYNC_EVERY_MS) void this.pushSnapshot();
@@ -372,6 +373,14 @@ class Net {
   }
 
   // ------------------------------------------------------------------ views
+
+  /** Live players from the artifact's shared database (claude.ai build). */
+  setExternalBoard(rows: LeaderRow[]) {
+    this.globalBoard = rows;
+    this.bump();
+  }
+  /** Called with every local snapshot (the artifact build mirrors it to the shared board). */
+  onSnapshot: ((s: Snapshot) => void) | null = null;
 
   leaderboard(me: LeaderRow): LeaderRow[] {
     const t = Date.now() / 1000;

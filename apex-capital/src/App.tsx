@@ -31,6 +31,7 @@ import { auth, useAuth } from './online/auth.ts';
 import { cloud } from './online/cloud.ts';
 import { liveNews, type LiveNews } from './online/livenews.ts';
 import { customMarkets } from './market/custom.ts';
+import { startArtifactOnline } from './online/artifactOnline.ts';
 
 type Tab = 'trade' | 'chat' | 'wealth' | 'settings';
 interface Toast {
@@ -168,6 +169,7 @@ export default function App() {
   useEffect(() => {
     void auth.init();
     void customMarkets.sync();
+    void startArtifactOnline();
     void liveNews.start();
     return liveNews.onNew((n) => {
       if (!settings.s.notify.news) return;

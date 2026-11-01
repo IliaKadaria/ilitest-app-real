@@ -1,4 +1,5 @@
 import { getClient } from './supabase.ts';
+import { readSave, writeSave, type ClaudeCaps } from './claudeCloud.ts';
 
 // Cloud save: every apex.* key (accounts, history, settings, mailbox, friends,
 // drawings…) is mirrored to the player's private row in `cloud_saves`
@@ -49,6 +50,7 @@ class Cloud {
   status: 'off' | 'syncing' | 'saved' | 'error' = 'off';
   lastSaved = 0;
   private user: string | null = null;
+  private claude: ClaudeCaps | null = null;
   private timer: number | null = null;
   private onChange: (() => void) | null = null;
 
@@ -84,7 +86,31 @@ class Cloud {
     return false;
   }
 
+  /** Artifact build: same contract as attach(), stored in the artifact's private per-player save. */
+  async attachClaude(c: ClaudeCaps, flush: () => void): Promise<boolean> {
+    this.claude = c;
+    this.user = c.id;
+    const m = meta();
+    if (m.user !== c.id || !m.restored) {
+      const saved = await readSave(c).catch(() => null);
+      setMeta({ user: c.id, restored: true, savedAt: Date.now() });
+      if (saved) {
+        try {
+          for (const k of keys()) window.localStorage.removeItem(k);
+          for (const [k, v] of Object.entries(saved)) if (k.startsWith('apex.') && !SKIP.has(k)) window.localStorage.setItem(k, v);
+        } catch {
+          return false;
+        }
+        return true;
+      }
+    }
+    flush();
+    await this.saveNow();
+    return false;
+  }
+
   detach() {
+    this.claude = null;
     this.user = null;
     this.status = 'off';
     if (this.timer !== null) window.clearTimeout(this.timer);
@@ -102,6 +128,19 @@ class Cloud {
     if (this.timer !== null) {
       window.clearTimeout(this.timer);
       this.timer = null;
+    }
+    if (this.claude) {
+      this.status = 'syncing';
+      this.onChange?.();
+      try {
+        await writeSave(this.claude, snapshot());
+        this.status = 'saved';
+        this.lastSaved = Date.now();
+      } catch {
+        this.status = 'error';
+      }
+      this.onChange?.();
+      return;
     }
     const c = getClient();
     if (!c) return;

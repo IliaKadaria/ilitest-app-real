@@ -5,6 +5,7 @@ import { game } from '../game/store.ts';
 import { cloud } from './cloud.ts';
 import { getClient, hasServer } from './supabase.ts';
 import { net } from './net.ts';
+import { claudeCaps, isArtifactBuild } from './claudeCloud.ts';
 
 // ---------------------------------------------------------------------------
 // Login / sign-up.
@@ -18,7 +19,7 @@ import { net } from './net.ts';
 // verified e-mail listed in `admin_emails`.
 // ---------------------------------------------------------------------------
 
-export type Provider = 'google' | 'github' | 'twitter' | 'email' | 'offline';
+export type Provider = 'google' | 'github' | 'twitter' | 'email' | 'offline' | 'claude';
 
 export interface AuthState {
   mode: 'online' | 'offline';
@@ -72,6 +73,8 @@ class Auth {
   error: string | null = null;
   notice: string | null = null;
   readonly online = hasServer;
+  /** Artifact build: online login with the viewer's Claude account (null until known). */
+  claudeAvailable: boolean | null = isArtifactBuild ? null : false;
   private listeners = new Set<Listener>();
   private version = 0;
 
@@ -99,6 +102,16 @@ class Auth {
 
   /** Boot: pick up a persisted or just-redirected (OAuth / e-mail link) session. */
   async init() {
+    if (isArtifactBuild) {
+      void claudeCaps().then(async (cc) => {
+        this.claudeAvailable = !!cc;
+        if (cc && this.state?.provider === 'claude' && this.state.userId === cc.id) {
+          if (this.state.setupDone) await cloud.attachClaude(cc, () => game.flush());
+          if (cc.isOwner !== this.state.isAdmin) this.save({ ...this.state, isAdmin: cc.isOwner });
+        }
+        this.bump();
+      });
+    }
     const c = getClient();
     if (!c) {
       this.ready = true;
@@ -193,6 +206,36 @@ class Auth {
     this.bump();
   }
 
+  /** Artifact build: sign in as the Claude user viewing the page. */
+  async claudeSignIn() {
+    this.busy = true;
+    this.error = null;
+    this.bump();
+    const cc = await claudeCaps();
+    if (!cc) return this.fail('Sign in to claude.ai to play online here, or play offline.');
+    const prev = this.state;
+    const same = prev?.userId === cc.id;
+    this.save({ mode: 'online', provider: 'claude', userId: cc.id, setupDone: same ? prev!.setupDone : false, guideDone: same ? prev!.guideDone : false, passSalt: prev?.passSalt, passHash: prev?.passHash, isAdmin: cc.isOwner });
+    this.signedOut = false;
+    // returning player on a new device: restore their cloud save
+    if (await cloud.attachClaude(cc, () => game.flush())) {
+      const restored = (() => {
+        try {
+          return !!window.localStorage.getItem('apex.profile.v1');
+        } catch {
+          return false;
+        }
+      })();
+      if (restored) this.save({ ...this.state!, setupDone: true, guideDone: true });
+      location.reload();
+      return;
+    }
+    if (same && prev?.setupDone) this.save({ ...this.state!, setupDone: true });
+    else if (game.profile && prev?.setupDone) this.save({ ...this.state!, setupDone: true }); // offline account upgraded in place
+    this.busy = false;
+    this.bump();
+  }
+
   playOffline() {
     this.error = null;
     this.save({ mode: 'offline', provider: 'offline', setupDone: false, guideDone: false, isAdmin: false });
@@ -218,7 +261,13 @@ class Auth {
     const { salt, hash } = await hashPassword(password);
     game.setProfile(username);
     let isAdmin = s.isAdmin;
-    if (s.mode === 'online') {
+    if (s.mode === 'online' && s.provider === 'claude') {
+      const cc = await claudeCaps();
+      if (cc) {
+        isAdmin = cc.isOwner;
+        void cloud.attachClaude(cc, () => game.flush());
+      }
+    } else if (s.mode === 'online') {
       const sb = await getClient()!;
       // lets Google / GitHub / X players also sign in with e-mail + this password
       await sb.auth.updateUser({ password }).catch(() => null);
@@ -248,6 +297,7 @@ class Auth {
   /** Refresh the server-side admin flag (e.g. after the owner adds an admin e-mail). */
   async refreshAdmin() {
     if (this.state?.mode !== 'online') return;
+    if (this.state.provider === 'claude') return;
     const c = getClient();
     if (!c) return;
     const { data } = await (await c).rpc('get_link');
@@ -258,7 +308,7 @@ class Auth {
   async signOut() {
     await cloud.saveNow();
     cloud.detach();
-    const c = getClient();
+    const c = this.state?.provider === 'claude' ? null : getClient();
     if (c) await (await c).auth.signOut().catch(() => null);
     // keep the local game and its password so the player can continue offline
     this.save(this.state ? { ...this.state, mode: 'offline', provider: 'offline', userId: undefined, email: undefined, isAdmin: false, setupDone: !!this.state.passHash } : null);
