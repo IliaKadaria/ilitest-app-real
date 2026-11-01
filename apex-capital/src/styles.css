@@ -689,3 +689,4 @@ button.lb.me { background: rgba(229, 229, 231, 0.05); }
 .gatesec b { white-space: nowrap; font-size: 13px; color: var(--text); letter-spacing: 0.02em; }
 .authbtn.primaryauth { background: var(--platinum); color: var(--obsidian); border: none; }
 .authbtn:disabled { opacity: 0.45; }
+.errbox { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--charcoal); border: 1px solid var(--hair-2); color: var(--down); font: 12px var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }

@@ -16,6 +16,14 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript><p style="color:#ececee;font:15px system-ui;padding:24px">Liquidated needs JavaScript. Please enable it and reload.</p></noscript>
+    <script>
+      // If the app script can't load at all (very old browser, blocked file), say so instead of a blank page.
+      setTimeout(function () {
+        var r = document.getElementById('root');
+        if (r && !r.hasChildNodes()) r.innerHTML = '<div style="color:#ececee;font:15px system-ui;padding:32px 24px;max-width:420px"><b style="letter-spacing:.3em">LIQUIDATED</b><p>The game didn\'t start. Update your browser (Chrome, Safari or Firefox from 2023 or newer) and reload.</p><button onclick="location.reload()" style="padding:10px 16px;border-radius:10px">Reload</button></div>';
+      }, 12000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
