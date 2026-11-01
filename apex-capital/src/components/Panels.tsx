@@ -23,7 +23,7 @@ export function Tape({ now }: { now: number }) {
     <div className="list">
       <div className="modebanner glass">
         <span>
-          <b>Live tape</b> · {n.mode === 'online' && n.status === 'live' ? `${n.onlineCount()} online` : 'desk activity'} · desk traders are simulated
+          <b>Live tape</b> · {n.mode === 'online' && n.status === 'live' ? `${n.onlineCount()} online` : 'your trades'} · real players only
         </span>
       </div>
       {n.feed.filter((f) => f.kind !== 'chat').slice(0, 80).map((f) => (

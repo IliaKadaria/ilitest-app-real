@@ -234,7 +234,6 @@ export default function App() {
   // 4 Hz loop
   useEffect(() => {
     game.tick();
-    net.tickNpc(now);
     for (const ev of recentNews(now, 10)) {
       if (seenNews.current.has(ev.id)) continue;
       seenNews.current.add(ev.id);

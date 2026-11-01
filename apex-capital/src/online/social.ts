@@ -1,17 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
-import { rand, strSeed } from '../market/rng.ts';
 import { getItem, setItem } from '../storage.ts';
 import { divisionFor } from '../game/tiers.ts';
 import { comms } from './comms.ts';
 import { net } from './net.ts';
-import { NPC_NAMES, npcBalance } from './npc.ts';
 
 // ---------------------------------------------------------------------------
 // Friends, player profiles and private direct messages.
 // Online: Supabase. Friendships and DMs are NOT publicly readable; they only
-// come back through secret-checked RPCs. Desk traders (NPCs) are simulated on
-// the device, so they work in both modes and always reply.
+// come back through secret-checked RPCs. Real players only: there are no
+// simulated traders.
 // ---------------------------------------------------------------------------
 
 export interface PlayerCard {
@@ -58,41 +56,6 @@ interface LocalSocial {
 }
 
 const isNpc = (id: string) => id.startsWith('npc-');
-const npcName = (id: string) => id.slice(4);
-
-export function npcCard(name: string, t = Date.now() / 1000): PlayerCard {
-  const s = strSeed(name);
-  const balance = npcBalance(name, t);
-  const trades = 40 + Math.floor(rand(s, 2) * 900);
-  const wr = 0.38 + rand(s, 3) * 0.3;
-  return {
-    id: `npc-${name}`,
-    name,
-    avatar: `p:${s % 12}`,
-    balance,
-    totalProfit: balance - 100 * (1 + Math.floor(rand(s, 4) * 4)),
-    bestTrade: balance * (0.04 + rand(s, 5) * 0.2),
-    wins: Math.round(trades * wr),
-    losses: Math.round(trades * (1 - wr)),
-    blownCount: Math.floor(rand(s, 6) ** 2 * 6),
-    npc: true,
-    lastSeen: t - Math.floor(rand(s, Math.floor(t / 600)) * 3600),
-  };
-}
-
-const NPC_REPLIES: [RegExp, string[]][] = [
-  [/gold|xau/i, ['Gold is respecting the London range. I’m waiting for a sweep of the lows.', 'XAU looks heavy into the close, I’m flat.', 'Bought the dip on gold, stop under the session low.']],
-  [/eur|fx|forex|usd|gbp|jpy/i, ['Fiber is chopping. Not touching it before the data.', 'Cable spread blew out on that headline, careful with size.', 'USDJPY: watch for MoF intervention chatter above 152.']],
-  [/nas|nvda|tsla|aapl|tech|stock/i, ['Tech tape is all flow today. Scalping only.', 'NAS100 broke the morning high, trailing my stop.', 'I fade those block prints, they mean-revert in 10 minutes.']],
-  [/hi|hello|hey|yo|sup/i, ['Hey! How’s the P&L today?', 'Yo. Green day so far?', 'Hey, good to see you on the desk.']],
-  [/loss|lost|blown|liquidat|stop/i, ['Happens to all of us. Smaller size, wider stop, fewer trades.', 'Take a break after a stop-out. Revenge trades are the expensive ones.']],
-  [/profit|win|green|tp/i, ['Nice one. Bank it and don’t give it back.', 'That’s the way. What was the setup?']],
-];
-function npcReply(text: string, seed: number): string {
-  for (const [re, lines] of NPC_REPLIES) if (re.test(text)) return lines[seed % lines.length];
-  const generic = ['Interesting. What timeframe are you trading?', 'I’m watching the macro calendar before sizing up.', 'Agreed. Risk first, then reward.', 'Send me your chart, I’ll take a look.'];
-  return generic[seed % generic.length];
-}
 
 type Listener = () => void;
 
@@ -146,14 +109,11 @@ class Social {
   async start(me: SocialMe) {
     if (this.me) return;
     this.me = me;
-    if (!this.local.seeded) {
-      // one desk trader already wants to connect, so the requests flow is discoverable
-      const now = Date.now() / 1000;
-      this.local.friends.push({ id: 'npc-K.Tanaka', status: 'incoming', since: now - 3600 });
-      this.local.dms.push({ id: 'seed1', from: 'npc-K.Tanaka', to: me.id, body: 'Welcome to the desk. Add me if you want to swap setups.', at: now - 3500 });
-      this.local.seeded = true;
-      this.saveLocal();
-    }
+    // older builds seeded simulated traders: drop them from saved friends and messages
+    const f0 = this.local.friends.length + this.local.dms.length;
+    this.local.friends = this.local.friends.filter((f) => !isNpc(f.id));
+    this.local.dms = this.local.dms.filter((d) => !isNpc(d.from) && !isNpc(d.to));
+    if (this.local.friends.length + this.local.dms.length !== f0) this.saveLocal();
     this.bump();
     const sb = await net.client();
     if (!sb) return;
@@ -220,7 +180,7 @@ class Social {
 
   /** Best-known card for any player id (NPCs computed live). */
   card(id: string): PlayerCard | null {
-    if (isNpc(id)) return npcCard(npcName(id));
+    if (isNpc(id)) return null;
     const hit = this.cards.get(id);
     if (hit) return hit;
     const b = net.globalBoard.find((r) => r.id === id);
@@ -235,22 +195,26 @@ class Social {
   async search(q: string): Promise<PlayerCard[]> {
     const term = q.trim();
     if (term.length < 2) return [];
-    const lower = term.toLowerCase();
-    const npcs = NPC_NAMES.filter((n) => n.toLowerCase().includes(lower)).map((n) => npcCard(n));
     const client = await net.client();
-    if (!client) return npcs;
+    if (!client) return this.boardMatches(term);
     const { data } = await client.from('players').select('*').ilike('name', `%${term.replace(/[%_]/g, '')}%`).order('updated_at', { ascending: false }).limit(25);
     const humans = ((data ?? []) as Record<string, unknown>[]).map((r) => this.rowToCard(r)).filter((c) => c.id !== this.me?.id);
     humans.forEach((c) => this.cards.set(c.id, c));
-    return [...humans, ...npcs];
+    return humans;
+  }
+
+  /** Without the server: match players visible on the live leaderboard (artifact build). */
+  private boardMatches(term: string): PlayerCard[] {
+    const lower = term.toLowerCase();
+    return net.globalBoard
+      .filter((r) => r.id !== this.me?.id && r.name.toLowerCase().includes(lower))
+      .map((r) => ({ id: r.id, name: r.name, balance: r.balance, totalProfit: 0, bestTrade: 0, wins: 0, losses: 0, blownCount: r.blownCount ?? 0, npc: false }));
   }
 
   /** Communities a player belongs to. */
   groupsOf(id: string): string[] {
     const own = comms.members.filter((m) => m.playerId === id && !m.banned).map((m) => m.communityId);
-    if (own.length || !isNpc(id)) return own;
-    const s = strSeed(id);
-    return comms.communities.filter((_, i) => (s >> i) & 1 || i === s % Math.max(1, comms.communities.length)).map((c) => c.id);
+    return own;
   }
 
   // ---------------------------------------------------------------- friends
@@ -265,41 +229,16 @@ class Social {
   }
   async request(id: string): Promise<string | null> {
     if (id === this.me?.id) return 'That’s you.';
-    if (isNpc(id)) {
-      const incoming = this.status(id) === 'incoming';
-      this.local.friends = [...this.local.friends.filter((f) => f.id !== id), { id, status: incoming ? 'friends' : 'outgoing', since: Date.now() / 1000 }];
-      this.saveLocal();
-      this.bump();
-      if (!incoming)
-        window.setTimeout(() => {
-          this.local.friends = this.local.friends.map((f) => (f.id === id ? { ...f, status: 'friends' } : f));
-          this.saveLocal();
-          this.bump();
-        }, 1500 + (strSeed(id) % 2000));
-      return null;
-    }
     const err = await this.rpc('request_friend', { p_peer: id });
     if (!err) await this.pollFriends();
     return err;
   }
   async respond(id: string, accept: boolean): Promise<string | null> {
-    if (isNpc(id)) {
-      this.local.friends = accept ? this.local.friends.map((f) => (f.id === id ? { ...f, status: 'friends' as const } : f)) : this.local.friends.filter((f) => f.id !== id);
-      this.saveLocal();
-      this.bump();
-      return null;
-    }
     const err = await this.rpc('respond_friend', { p_peer: id, p_accept: accept });
     if (!err) await this.pollFriends();
     return err;
   }
   async remove(id: string): Promise<string | null> {
-    if (isNpc(id)) {
-      this.local.friends = this.local.friends.filter((f) => f.id !== id);
-      this.saveLocal();
-      this.bump();
-      return null;
-    }
     const err = await this.rpc('remove_friend', { p_peer: id });
     if (!err) await this.pollFriends();
     return err;
@@ -333,19 +272,6 @@ class Social {
     const text = body.trim().slice(0, 1000);
     if (!text || !this.me) return 'Message is empty.';
     if (this.status(peer) !== 'friends') return 'You can only message friends. Send a friend request first.';
-    if (isNpc(peer)) {
-      const now = Date.now() / 1000;
-      this.local.dms.push({ id: `l${now}${Math.random()}`, from: this.me.id, to: peer, body: text, at: now });
-      this.saveLocal();
-      this.bump();
-      const seed = strSeed(text + peer);
-      window.setTimeout(() => {
-        this.local.dms.push({ id: `l${Date.now()}`, from: peer, to: this.me!.id, body: npcReply(text, seed), at: Date.now() / 1000 });
-        this.saveLocal();
-        this.bump();
-      }, 1800 + (seed % 3500));
-      return null;
-    }
     const err = await this.rpc('send_dm', { p_to: peer, p_body: text });
     if (!err) await this.pollDms();
     return err;

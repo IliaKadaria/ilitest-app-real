@@ -1,6 +1,5 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
-import { NPC_NAMES, NPC_SLOT, npcBalance, npcProfit, npcTradeForSlot } from './npc.ts';
 import { getClient, hasServer } from './supabase.ts';
 
 export type FeedItem =
@@ -88,7 +87,6 @@ class Net {
   private registered: Promise<boolean> | null = null;
   private listeners = new Set<Listener>();
   private version = 0;
-  private lastNpcT = 0;
   private lastChatAt = 0;
   private lastSyncAt = 0;
   private syncing = false;
@@ -119,9 +117,6 @@ class Net {
 
   start(snap: Snapshot) {
     this.snap = snap;
-    const now = Date.now() / 1000;
-    this.lastNpcT = now - 180; // back-fill 3 min of NPC activity
-    this.tickNpc(now);
     if (this.mode !== 'online' || this.sb) return;
     void this.connect();
   }
@@ -354,24 +349,6 @@ class Net {
     return true;
   }
 
-  // ------------------------------------------------------------------ NPCs
-
-  tickNpc(now: number) {
-    // Clamp catch-up (first run / tab asleep) to the last 3 minutes.
-    const from = Math.max(this.lastNpcT, now - 180);
-    if (now <= from) return;
-    this.lastNpcT = now;
-    const items: FeedItem[] = [];
-    const firstSlot = Math.floor((from - 930) / NPC_SLOT);
-    for (let s = firstSlot; s <= Math.floor(now / NPC_SLOT); s++) {
-      const tr = npcTradeForSlot(s);
-      if (!tr) continue;
-      if (tr.tOpen > from && tr.tOpen <= now) items.push({ kind: 'open', key: `${tr.key}-o`, name: tr.name, sym: tr.sym, side: tr.side, lots: tr.lots, at: tr.tOpen, npc: true });
-      if (tr.tClose > from && tr.tClose <= now) items.push({ kind: 'close', key: `${tr.key}-c`, name: tr.name, sym: tr.sym, side: tr.side, lots: tr.lots, profit: npcProfit(tr), at: tr.tClose, npc: true });
-    }
-    if (items.length) this.insertFeed(items);
-  }
-
   // ------------------------------------------------------------------ views
 
   /** Live players from the artifact's shared database (claude.ai build). */
@@ -383,10 +360,8 @@ class Net {
   onSnapshot: ((s: Snapshot) => void) | null = null;
 
   leaderboard(me: LeaderRow): LeaderRow[] {
-    const t = Date.now() / 1000;
-    const npcs: LeaderRow[] = NPC_NAMES.map((n) => ({ id: `npc-${n}`, name: n, balance: npcBalance(n, t), rank: '', npc: true }));
     const humans = this.globalBoard.filter((r) => r.id !== me.id);
-    return [...humans, ...npcs, { ...me, me: true }].sort((a, b) => b.balance - a.balance);
+    return [...humans, { ...me, me: true }].sort((a, b) => b.balance - a.balance);
   }
 
   onlineCount(): number {

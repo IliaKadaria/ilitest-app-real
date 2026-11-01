@@ -271,16 +271,19 @@ class Auth {
       const sb = await getClient()!;
       // lets Google / GitHub / X players also sign in with e-mail + this password
       await sb.auth.updateUser({ password }).catch(() => null);
-      for (let i = 0; i < 40 && !(await net.ready()); i++) await new Promise((r) => setTimeout(r, 250));
+      for (let i = 0; i < 20 && !(await net.ready()); i++) await new Promise((r) => setTimeout(r, 250));
       const p = game.profile!;
       const { data, error } = await sb.rpc('link_account', { p_id: p.id, p_secret: p.secret });
-      if (error) {
+      // Server database not set up yet (migrations not run): stay signed in and keep playing;
+      // the profile links automatically on the next sign-in once the server is ready.
+      const notReady = !!error && (error.code === 'PGRST202' || /could not find the function|does not exist|schema cache/i.test(error.message));
+      if (error && !notReady) {
         this.busy = false;
         this.bump();
         return /taken|unique/i.test(error.message) ? 'That username is taken.' : `Could not link your account: ${error.message}`;
       }
       isAdmin = !!(data as { is_admin?: boolean } | null)?.is_admin;
-      void cloud.attach(s.userId!, () => game.flush());
+      if (!notReady) void cloud.attach(s.userId!, () => game.flush());
     }
     this.busy = false;
     this.save({ ...this.state!, setupDone: true, passSalt: salt, passHash: hash, isAdmin });

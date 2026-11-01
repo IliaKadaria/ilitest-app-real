@@ -2,7 +2,6 @@ import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
 import { getItem, setItem } from '../storage.ts';
 import { net } from './net.ts';
-import { NPC_NAMES } from './npc.ts';
 
 // ---------------------------------------------------------------------------
 // Communities: admin-created groups, WhatsApp-style chat, broadcast mode,
@@ -99,39 +98,30 @@ interface LocalDb {
 
 function seedDb(): LocalDb {
   const now = Date.now() / 1000;
-  const c = (id: string, name: string, description: string, broadcast: boolean): Community => ({ id, name, description, broadcast, createdAt: now - 86400 * 9 });
-  const m = (id: string, communityId: string, name: string, kind: MsgKind, body: string, ago: number, payload: Msg['payload'] = null): Msg => ({ id, communityId, playerId: name === 'Liquidated Desk' ? HOUSE : `npc-${name}`, name, kind, body, payload, deleted: false, createdAt: now - ago });
+  const c = (id: string, name: string, description: string, broadcast: boolean): Community => ({ id, name, description, broadcast, createdAt: now });
+  const sys = (id: string, communityId: string, body: string): Msg => ({ id, communityId, playerId: HOUSE, name: 'Liquidated', kind: 'system', body, payload: null, deleted: false, createdAt: now });
+  // Real players only: rooms start empty and fill up with whoever joins.
   return {
     seq: 100,
     communities: [
       c('lounge', 'Liquidated Lounge', 'Open floor for all members. Keep it civil.', false),
-      c('macro', 'Macro Desk', 'Pre-release briefings on CPI, FOMC and payrolls.', true),
-      c('alpha', 'Alpha Signals', 'Desk trade ideas with entry, stop and target.', true),
+      c('macro', 'Macro Desk', 'Briefings on CPI, FOMC and payrolls from the admins.', true),
+      c('alpha', 'Alpha Signals', 'Admin trade ideas with entry, stop and target.', true),
     ],
-    members: [...['lounge', 'macro', 'alpha'].map((communityId) => ({ communityId, playerId: HOUSE, role: 'admin' as const, banned: false })), ...npcMembers()],
-    messages: [
-      m('s1', 'lounge', 'Liquidated Desk', 'system', 'Liquidated Desk created the community', 86400 * 9),
-      m('l1', 'lounge', 'M.Laurent', 'text', 'Gold holding the 2,640 shelf again. Patience pays here.', 3600 * 5),
-      m('l2', 'lounge', 'K.Tanaka', 'text', 'Yen desk is quiet until Tokyo CPI. Flat into the print.', 3600 * 3),
-      m('l3', 'lounge', 'A.Okafor', 'text', 'Took partials on NVDA after that block print. Runner stop at entry.', 1800),
-      m('s2', 'macro', 'Liquidated Desk', 'system', 'Broadcast mode on: only admins can send messages', 86400 * 8),
-      m('a1', 'macro', 'Liquidated Desk', 'announcement', 'US CPI prints this week. Expect spreads to widen 4x for ~20s around the release. Size down.', 3600 * 6),
-      m('p1', 'macro', 'Liquidated Desk', 'poll', 'Where does EUR/USD close the week?', 3600 * 4, { options: ['Above 1.0900', '1.0800 – 1.0900', 'Below 1.0800'] }),
-      m('s3', 'alpha', 'Liquidated Desk', 'system', 'Broadcast mode on: only admins can send messages', 86400 * 8),
-      m('g1', 'alpha', 'Liquidated Desk', 'signal', 'Desk idea: buy gold on the London dip, risk 1:2.', 3600 * 2, { sym: 'XAUUSD', side: 1, entry: 2642.5, sl: 2631.0, tp: 2665.5 }),
-    ],
-    votes: [
-      { messageId: 'p1', playerId: 'npc-M.Laurent', option: 0 },
-      { messageId: 'p1', playerId: 'npc-K.Tanaka', option: 1 },
-      { messageId: 'p1', playerId: 'npc-A.Okafor', option: 1 },
-    ],
+    members: ['lounge', 'macro', 'alpha'].map((communityId) => ({ communityId, playerId: HOUSE, role: 'admin' as const, banned: false })),
+    messages: [sys('s1', 'lounge', 'Community created'), sys('s2', 'macro', 'Broadcast mode on: only admins can send messages'), sys('s3', 'alpha', 'Broadcast mode on: only admins can send messages')],
+    votes: [],
   };
 }
 
-/** Deterministic NPC membership so groups have real-looking rosters. */
-function npcMembers(): Member[] {
-  const rooms = ['lounge', 'macro', 'alpha'];
-  return NPC_NAMES.flatMap((n, i) => rooms.filter((_, k) => (i + k) % 3 !== 2 || i < 4).map((communityId) => ({ communityId, playerId: `npc-${n}`, role: 'member' as const, banned: false })));
+/** Older builds seeded simulated traders and sample posts: remove them from saved data. */
+const SAMPLE_IDS = new Set(['l1', 'l2', 'l3', 'a1', 'p1', 'g1']);
+function purgeSamples(db: LocalDb): boolean {
+  const before = db.members.length + db.messages.length + db.votes.length;
+  db.members = db.members.filter((m) => !m.playerId.startsWith('npc-'));
+  db.messages = db.messages.filter((m) => !SAMPLE_IDS.has(m.id) && !(m.playerId ?? '').startsWith('npc-'));
+  db.votes = db.votes.filter((v) => !SAMPLE_IDS.has(v.messageId) && !v.playerId.startsWith('npc-'));
+  return db.members.length + db.messages.length + db.votes.length !== before;
 }
 
 class LocalBackend implements Backend {
@@ -151,10 +141,7 @@ class LocalBackend implements Backend {
       const raw = getItem(LOCAL_KEY);
       if (raw) {
         const db = JSON.parse(raw) as LocalDb;
-        if (!db.members.some((m) => m.playerId.startsWith('npc-'))) {
-          db.members.push(...npcMembers());
-          setItem(LOCAL_KEY, JSON.stringify(db));
-        }
+        if (purgeSamples(db)) setItem(LOCAL_KEY, JSON.stringify(db));
         return db;
       }
     } catch {

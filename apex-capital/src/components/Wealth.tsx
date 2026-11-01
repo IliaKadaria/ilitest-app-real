@@ -119,7 +119,7 @@ function Board({ onProfile }: { onProfile: (id: string) => void }) {
           <span className="muted">of {rows.length} · {compactMoney(me.balance)}</span>
         </div>
       )}
-      {scope === 'world' && n.mode === 'online' && <div className="hint" style={{ padding: '0 16px 6px' }}>Live players active in the last 7 days + simulated desk traders.</div>}
+      {scope === 'world' && n.mode === 'online' && <div className="hint" style={{ padding: '0 16px 6px' }}>Real players active in the last 7 days.</div>}
       {rows.slice(0, 100).map((row, i) => {
         const rd = divisionFor(row.balance);
         const card = row.me ? null : social.card(row.id);
@@ -187,7 +187,7 @@ function BalanceView({ m }: { m: Metrics }) {
         <div><b>{a.peakBalance > 0 ? `${Math.max(0, ((a.peakBalance - a.balance) / a.peakBalance) * 100).toFixed(1)}%` : '0%'}</b><span>Drawdown</span></div>
         <div><b>{a.blownCount}</b><span>Reviews</span></div>
       </div>
-      <div className="hint" style={{ padding: '4px 16px 16px' }}>{net.mode === 'online' ? 'Your balance syncs to the global leaderboard every few seconds.' : 'Offline mode: leaderboard shows simulated desk traders.'}</div>
+      <div className="hint" style={{ padding: '4px 16px 16px' }}>{net.mode === 'online' ? 'Your balance syncs to the global leaderboard every few seconds.' : 'Offline mode: the leaderboard fills with real players once you play online.'}</div>
     </>
   );
 }

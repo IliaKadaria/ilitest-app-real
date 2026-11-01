@@ -60,7 +60,7 @@ export function Communities({ now, notify, onOpenSymbol, onProfile, openRoom }: 
     [c.communities, c.messages],
   );
 
-  if (room === 'tape') return <Shell title="Live Tape" subtitle="All desk & member executions" onBack={() => setRoom(null)} body={<div className="msgs" style={{ padding: 0 }}><Tape now={now} /></div>} />;
+  if (room === 'tape') return <Shell title="Live Tape" subtitle="Live executions by players" onBack={() => setRoom(null)} body={<div className="msgs" style={{ padding: 0 }}><Tape now={now} /></div>} />;
   const active = c.communities.find((x) => x.id === room);
   if (active) return <Room c={active} notify={notify} onBack={() => setRoom(null)} onOpenSymbol={onOpenSymbol} onProfile={onProfile} />;
 
