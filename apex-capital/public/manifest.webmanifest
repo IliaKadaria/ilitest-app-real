@@ -1,7 +1,7 @@
 {
-  "name": "Apex Capital",
-  "short_name": "Apex",
-  "description": "Private-banking trading terminal. Simulated markets, real discipline.",
+  "name": "Liquidated: Day Trading Game",
+  "short_name": "Liquidated",
+  "description": "Day trading game: MetaTrader 5-style terminal, simulated markets.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

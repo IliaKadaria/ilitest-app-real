@@ -152,7 +152,7 @@ export default function App() {
           sfx.vault();
           void net.lockAccount();
           pushSnapshot(true);
-          mail.add('Account frozen for credit review', `${e.reason}. All positions were liquidated and pending orders cancelled. Trading resumes after a 5-hour review.`, 'bad', 'Apex Private Banking');
+          mail.add('Account frozen for credit review', `${e.reason}. All positions were liquidated and pending orders cancelled. Trading resumes after a 5-hour review.`, 'bad', 'Liquidated Risk Desk');
           if (settings.s.notify.stopout) void push.local('Account frozen · stop-out', e.reason, 'stopout');
         }
         if (e.type === 'account') {
@@ -191,7 +191,7 @@ export default function App() {
     void comms.start(me);
     void social.start(me);
     void push.init(me).then(setPushState);
-    if (!mail.items.length) mail.add('Welcome to Apex Capital', `Your demo account #${game.account.login} is open with ${money(START_BALANCE)}.\n\nTrade → Quotes lists 52 instruments in Forex, Metals and Nasdaq. Swipe a symbol left for New order / Open chart / Delete. Turn on notifications in Settings to hear about take-profit fills even when the app is closed.`, 'info');
+    if (!mail.items.length) mail.add('Welcome to Liquidated', `Your demo account #${game.account.login} is open with ${money(START_BALANCE)}.\n\nTrade → Quotes lists 60+ instruments in Forex, Futures and Nasdaq. Swipe a symbol left for New order / Open chart / Delete. Turn on notifications in Settings to hear about take-profit fills even when the app is closed.`, 'info');
   }, [g.profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // profile changes → server
@@ -263,7 +263,7 @@ export default function App() {
     if (di > lastDiv.current && !frozen) {
       const d = divisionFor(g.account.balance);
       notify('Promotion', `You reached ${d.label}. Unlocked: ${d.symbol}`, 'good');
-      mail.add(`Promoted to ${d.label}`, `Congratulations. Your balance crossed ${money(d.min)}. Status unlocked: ${d.symbol}.`, 'good', 'Apex Private Banking');
+      mail.add(`Promoted to ${d.label}`, `Congratulations. Your balance crossed ${money(d.min)}. Status unlocked: ${d.symbol}.`, 'good', 'Liquidated Risk Desk');
     }
     lastDiv.current = di;
     if (Math.floor(now * 4) % 4 === 0) pushSnapshot(false);
@@ -307,7 +307,7 @@ export default function App() {
           <Avatar name={g.profile.name} src={g.profile.avatar} size={36} />
         </button>
         <div className="brand">
-          <span className="wordmark">APEX</span>
+          <span className="wordmark">LIQUIDATED</span>
           <span className="divline"><Badge d={div} size={14} /> {div.label} · {g.profile.name}</span>
         </div>
         <div className="eq">

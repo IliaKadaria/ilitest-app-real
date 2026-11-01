@@ -57,6 +57,7 @@ const COLORS: [keyof ChartColors, string][] = [
 
 export function SettingsTab({ now, notify, pushState, setPushState, onSymbol }: { now: number; notify: Notify; pushState: PushState; setPushState: (s: PushState) => void; onSymbol: (s: string) => void }) {
   const au = useAuth();
+  const [confirmOut, setConfirmOut] = useState(false);
   const g = useGame();
   const t = useT();
   const mb = useMail();
@@ -91,7 +92,7 @@ export function SettingsTab({ now, notify, pushState, setPushState, onSymbol }: 
         <Avatar name={p.name} src={p.avatar} size={64} />
         <span className="qname">
           <b style={{ fontSize: 18 }}>{p.name}</b>
-          <small>{d.label} · #{g.account.login} · Apex-Demo</small>
+          <small>{d.label} · #{g.account.login} · Liquidated-Demo</small>
           <small>{money(g.account.balance)} · {net.mode === 'online' && net.status === 'live' ? 'Live server' : 'Offline mode'}</small>
         </span>
         <Badge d={d} size={34} />
@@ -111,6 +112,20 @@ export function SettingsTab({ now, notify, pushState, setPushState, onSymbol }: 
         {au.state?.isAdmin && item('admin', <Icon.lock />, 'Admin · Markets', <small className="muted">{customMarkets.list.length}</small>)}
         {item('about', <Icon.info />, t('s.about'))}
       </div>
+      <button className="logout" onClick={() => setConfirmOut(true)}>Log Out</button>
+      {confirmOut && (
+        <div className="modal" onClick={() => setConfirmOut(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="grab" />
+            <h3>Log out of {p.name}?</h3>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {au.state?.mode === 'online' ? 'Your progress is saved to the cloud first. Sign back in with the same account to continue.' : 'Your account stays on this device. You’ll need your password to get back in.'}
+            </p>
+            <button className="logout" style={{ margin: 0, width: '100%' }} onClick={() => { setConfirmOut(false); void auth.logOut(); }}>Log Out</button>
+            <button className="ghost" onClick={() => setConfirmOut(false)}>{t('x.cancel')}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -188,7 +203,7 @@ function Accounts({ notify }: { notify: Notify }) {
         return (
           <button key={a.login} className={`acctrow card ${active ? 'on' : ''}`} onClick={() => { if (!active && game.switchAccount(a.login)) notify('Account switched', `#${a.login}`, 'good'); }}>
             <span className="qname">
-              <b>#{a.login} · Apex-Demo</b>
+              <b>#{a.login} · Liquidated-Demo</b>
               <small>{g.profile?.name} · Hedge · 1:500 · opened {new Date(a.createdAt).toLocaleDateString()}</small>
             </span>
             <span style={{ textAlign: 'right' }}>
@@ -305,7 +320,7 @@ function Notifications({ state, setState }: { state: PushState; setState: (s: Pu
     ['news', 'Breaking news', 'Real-world headlines as they land, like posts on X'],
   ];
   const label: Record<PushState, string> = {
-    unsupported: 'This browser can’t show notifications. On iPhone: Share → Add to Home Screen, then open Apex from the home screen.',
+    unsupported: 'This browser can’t show notifications. On iPhone: Share → Add to Home Screen, then open Liquidated from the home screen.',
     denied: 'Notifications are blocked. Allow them for this site in your browser / system settings.',
     off: 'Off',
     local: 'On while the app is running in the background. The push server isn’t configured yet, so nothing arrives once the app is fully closed.',
@@ -331,7 +346,7 @@ function Notifications({ state, setState }: { state: PushState; setState: (s: Pu
           {push.lastSchedule.slice(0, 5).map((x) => <div key={x.tag} className="sub">{new Date(x.at * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · {x.title}</div>)}
         </div>
       )}
-      <p className="fine">The market is simulated deterministically, so Apex can calculate exactly when your take profit will be hit and schedule the alert in advance. Changing a position re-schedules it.</p>
+      <p className="fine">The market is simulated deterministically, so the game can calculate exactly when your take profit will be hit and schedule the alert in advance. Changing a position re-schedules it.</p>
     </div>
   );
 }
@@ -340,7 +355,8 @@ function About() {
   return (
     <div className="pad stack">
       <button onClick={() => auth.replayGuide()}>Replay the step-by-step guide</button>
-      <div className="wordmark">APEX CAPITAL</div>
+      <div className="wordmark">LIQUIDATED</div>
+      <div className="eyebrow">Day Trading Game</div>
       <p className="muted">MetaTrader 5-style day-trading game. 52 instruments across Forex, Metals and Nasdaq, simulated deterministically so every player trades the same market.</p>
       <p className="fine">Simulated markets and funds. Not investment advice. Stock tickers are used for realism only; their prices and headlines are generated by the game.</p>
       <p className="fine">Charts by TradingView Lightweight Charts™.</p>

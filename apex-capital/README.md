@@ -1,4 +1,4 @@
-# Apex Capital
+# Liquidated: Day Trading Game
 
 A private-banking style day-trading game for mobile (PWA). MetaTrader 5 mechanics, a
 Bloomberg-grade terminal and WhatsApp-style communities, all on a simulated market.

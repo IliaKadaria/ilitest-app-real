@@ -38,7 +38,7 @@ class Mailbox {
     this.version++;
     this.listeners.forEach((l) => l());
   }
-  add(subject: string, body: string, tone: Mail['tone'] = 'info', from = 'Apex Capital') {
+  add(subject: string, body: string, tone: Mail['tone'] = 'info', from = 'Liquidated') {
     this.items = [{ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: Date.now() / 1000, from, subject, body, read: false, tone }, ...this.items].slice(0, 200);
     this.save();
   }

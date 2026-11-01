@@ -1,5 +1,5 @@
 // Network-first for navigation, cache-first for hashed assets, Web Push for fills.
-const CACHE = 'apex-v2';
+const CACHE = 'liquidated-v3';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) =>
   e.waitUntil(
@@ -25,9 +25,9 @@ self.addEventListener('push', (e) => {
   try {
     data = e.data ? e.data.json() : {};
   } catch {
-    data = { title: 'Apex Capital', body: e.data ? e.data.text() : '' };
+    data = { title: 'Liquidated', body: e.data ? e.data.text() : '' };
   }
-  const title = data.title || 'Apex Capital';
+  const title = data.title || 'Liquidated';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
       // the app is on screen: it shows its own toast

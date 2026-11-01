@@ -100,25 +100,25 @@ interface LocalDb {
 function seedDb(): LocalDb {
   const now = Date.now() / 1000;
   const c = (id: string, name: string, description: string, broadcast: boolean): Community => ({ id, name, description, broadcast, createdAt: now - 86400 * 9 });
-  const m = (id: string, communityId: string, name: string, kind: MsgKind, body: string, ago: number, payload: Msg['payload'] = null): Msg => ({ id, communityId, playerId: name === 'Apex Desk' ? HOUSE : `npc-${name}`, name, kind, body, payload, deleted: false, createdAt: now - ago });
+  const m = (id: string, communityId: string, name: string, kind: MsgKind, body: string, ago: number, payload: Msg['payload'] = null): Msg => ({ id, communityId, playerId: name === 'Liquidated Desk' ? HOUSE : `npc-${name}`, name, kind, body, payload, deleted: false, createdAt: now - ago });
   return {
     seq: 100,
     communities: [
-      c('lounge', 'Apex Lounge', 'Open floor for all members. Keep it civil.', false),
+      c('lounge', 'Liquidated Lounge', 'Open floor for all members. Keep it civil.', false),
       c('macro', 'Macro Desk', 'Pre-release briefings on CPI, FOMC and payrolls.', true),
       c('alpha', 'Alpha Signals', 'Desk trade ideas with entry, stop and target.', true),
     ],
     members: [...['lounge', 'macro', 'alpha'].map((communityId) => ({ communityId, playerId: HOUSE, role: 'admin' as const, banned: false })), ...npcMembers()],
     messages: [
-      m('s1', 'lounge', 'Apex Desk', 'system', 'Apex Desk created the community', 86400 * 9),
+      m('s1', 'lounge', 'Liquidated Desk', 'system', 'Liquidated Desk created the community', 86400 * 9),
       m('l1', 'lounge', 'M.Laurent', 'text', 'Gold holding the 2,640 shelf again. Patience pays here.', 3600 * 5),
       m('l2', 'lounge', 'K.Tanaka', 'text', 'Yen desk is quiet until Tokyo CPI. Flat into the print.', 3600 * 3),
       m('l3', 'lounge', 'A.Okafor', 'text', 'Took partials on NVDA after that block print. Runner stop at entry.', 1800),
-      m('s2', 'macro', 'Apex Desk', 'system', 'Broadcast mode on: only admins can send messages', 86400 * 8),
-      m('a1', 'macro', 'Apex Desk', 'announcement', 'US CPI prints this week. Expect spreads to widen 4x for ~20s around the release. Size down.', 3600 * 6),
-      m('p1', 'macro', 'Apex Desk', 'poll', 'Where does EUR/USD close the week?', 3600 * 4, { options: ['Above 1.0900', '1.0800 – 1.0900', 'Below 1.0800'] }),
-      m('s3', 'alpha', 'Apex Desk', 'system', 'Broadcast mode on: only admins can send messages', 86400 * 8),
-      m('g1', 'alpha', 'Apex Desk', 'signal', 'Desk idea: buy gold on the London dip, risk 1:2.', 3600 * 2, { sym: 'XAUUSD', side: 1, entry: 2642.5, sl: 2631.0, tp: 2665.5 }),
+      m('s2', 'macro', 'Liquidated Desk', 'system', 'Broadcast mode on: only admins can send messages', 86400 * 8),
+      m('a1', 'macro', 'Liquidated Desk', 'announcement', 'US CPI prints this week. Expect spreads to widen 4x for ~20s around the release. Size down.', 3600 * 6),
+      m('p1', 'macro', 'Liquidated Desk', 'poll', 'Where does EUR/USD close the week?', 3600 * 4, { options: ['Above 1.0900', '1.0800 – 1.0900', 'Below 1.0800'] }),
+      m('s3', 'alpha', 'Liquidated Desk', 'system', 'Broadcast mode on: only admins can send messages', 86400 * 8),
+      m('g1', 'alpha', 'Liquidated Desk', 'signal', 'Desk idea: buy gold on the London dip, risk 1:2.', 3600 * 2, { sym: 'XAUUSD', side: 1, entry: 2642.5, sl: 2631.0, tp: 2665.5 }),
     ],
     votes: [
       { messageId: 'p1', playerId: 'npc-M.Laurent', option: 0 },

@@ -41,7 +41,7 @@ function draw(cv: HTMLCanvasElement, d: Deal, name: string, balance: number) {
   ctx.textAlign = 'left';
   ctx.font = `600 34px ${SANS}`;
   ctx.letterSpacing = '14px';
-  ctx.fillText('APEX CAPITAL', 96, 150);
+  ctx.fillText('LIQUIDATED', 96, 150);
   ctx.letterSpacing = '6px';
   ctx.fillStyle = '#8e8e93';
   ctx.font = `500 22px ${MONO}`;
@@ -123,7 +123,7 @@ export function FlexCard({ deal, name, balance, onClose }: { deal: Deal; name: s
   const [blob, setBlob] = useState<Blob | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const win = deal.profit >= 0;
-  const caption = `${win ? 'Closed' : 'Took a loss on'} ${SYMBOL_MAP[deal.sym].name}: ${money(deal.profit, true)} · Apex Capital (simulated)`;
+  const caption = `${win ? 'Closed' : 'Took a loss on'} ${SYMBOL_MAP[deal.sym].name}: ${money(deal.profit, true)} · Liquidated: Day Trading Game (simulated)`;
 
   // Render + encode up front so the Share tap stays inside the user gesture (iOS requirement).
   useEffect(() => {
@@ -145,7 +145,7 @@ export function FlexCard({ deal, name, balance, onClose }: { deal: Deal; name: s
   }, [deal, name, balance]);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
 
-  const fileName = `apex-confirmation-${deal.sym}-${Math.round(deal.closeTime)}.png`;
+  const fileName = `liquidated-confirmation-${deal.sym}-${Math.round(deal.closeTime)}.png`;
   const file = blob ? new File([blob], fileName, { type: 'image/png' }) : null;
   const canShareFile = !!file && !!navigator.canShare?.({ files: [file] });
   const flash = (m: string) => {

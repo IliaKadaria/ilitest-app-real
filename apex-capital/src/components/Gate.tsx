@@ -36,7 +36,8 @@ export function AuthScreen() {
     <div className="app">
       <div className="gate">
         <div className="gatehero">
-          <div className="wordmark">APEX CAPITAL</div>
+          <div className="wordmark">LIQUIDATED</div>
+          <div className="eyebrow" style={{ marginTop: 4 }}>Day Trading Game</div>
           <h1>Trade like a pro.<br />Without the risk.</h1>
           <p>52+ markets across Forex, Futures and Nasdaq on a MetaTrader 5-grade terminal. Start with {money(START_BALANCE)} and climb 30 ranks.</p>
         </div>
@@ -135,7 +136,7 @@ export function Splash() {
   return (
     <div className="app">
       <div className="gate" style={{ alignContent: 'center', justifyItems: 'center' }}>
-        <div className="wordmark">APEX CAPITAL</div>
+        <div className="wordmark">LIQUIDATED</div>
         <div className="muted" style={{ fontSize: 12 }}>Connecting…</div>
       </div>
     </div>

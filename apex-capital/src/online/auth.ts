@@ -267,6 +267,15 @@ class Auth {
   }
   /** Set after an explicit sign-out: the login screen shows again until the player picks a path. */
   signedOut = false;
+  /** Settings → Log Out. Online: end the session. Offline: lock the device account behind its password. */
+  async logOut() {
+    if (this.state?.mode === 'online') return this.signOut();
+    this.signedOut = true;
+    this.error = null;
+    this.notice = null;
+    this.bump();
+  }
+
   /** Offline player chooses to sign in (to back up / link this device's account). */
   signedOutView() {
     this.signedOut = true;

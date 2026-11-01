@@ -266,7 +266,7 @@ alter publication supabase_realtime add table public.poll_votes;
 
 -- Seed house communities (owned by the house, admins = players with is_admin).
 insert into public.communities (name, description, broadcast) values
-  ('Apex Lounge', 'Open floor for all members. Keep it civil.', false),
+  ('Liquidated Lounge', 'Open floor for all members. Keep it civil.', false),
   ('Macro Desk', 'Pre-release briefings on CPI, FOMC and payrolls.', true),
   ('Alpha Signals', 'Desk trade ideas with entry, stop and target.', true)
 on conflict do nothing;

@@ -82,7 +82,7 @@ export interface Settings {
 
 export const COLOR_PRESETS: Record<string, { label: string; colors: ChartColors }> = {
   apex: {
-    label: 'Apex graphite',
+    label: 'Graphite',
     colors: { background: '#121214', foreground: '#8e8e93', grid: '#1f1f23', barUp: '#4cc38a', barDown: '#e5484d', bullCandle: '#4cc38a', bearCandle: '#e5484d', lineChart: '#e5e5e7', volumes: '#3c5a4a', bidLine: '#8e8e93', askLine: '#ff7a7f', stopsLevel: '#e5484d' },
   },
   greenOnBlack: {

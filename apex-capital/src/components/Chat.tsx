@@ -114,7 +114,7 @@ export function Communities({ now, notify, onOpenSymbol, onProfile, openRoom }: 
           <button className="primary" style={{ width: '100%' }} onClick={() => setCreating(true)}>New community</button>
         </div>
       )}
-      {!c.isAdmin && c.mode !== 'connecting' && <div className="empty" style={{ paddingTop: 16 }}>Communities are created and run by Apex admins.</div>}
+      {!c.isAdmin && c.mode !== 'connecting' && <div className="empty" style={{ paddingTop: 16 }}>Communities are created and run by Liquidated admins.</div>}
 
       {creating && <CreateSheet notify={notify} onClose={() => setCreating(false)} />}
     </div>
