@@ -1,25 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Chart } from './components/Chart.tsx';
-import { OrderPanel } from './components/OrderPanel.tsx';
-import { History, Positions, Wealth } from './components/Panels.tsx';
-import { Quotes } from './components/Quotes.tsx';
-import { Communities } from './components/Chat.tsx';
+import { TradeTab, type TradeSub } from './components/TradeTab.tsx';
+import { ChatTab, ProfileSheet } from './components/Social.tsx';
+import { WealthTab } from './components/Wealth.tsx';
+import { SettingsTab } from './components/SettingsTab.tsx';
 import { Lockout } from './components/Lockout.tsx';
 import { FlexCard } from './components/FlexCard.tsx';
 import { Badge } from './components/Badge.tsx';
+import { Avatar } from './components/Avatar.tsx';
 import { Icon } from './components/Icons.tsx';
-import { Flash, FloatPnl, ScreenFx, type FxKind } from './components/Juice.tsx';
-import { TIMEFRAMES, midPrice, recentNews, upcomingNews } from './market/engine.ts';
-import { SYMBOL_MAP, effectiveTime, fmtPrice, nextOpen } from './market/symbols.ts';
-import { MARGIN_CALL_LEVEL, START_BALANCE, metrics, quotesFor, type Deal, type Metrics } from './game/account.ts';
+import { FloatPnl, ScreenFx, type FxKind } from './components/Juice.tsx';
+import { recentNews, upcomingNews } from './market/engine.ts';
+import { SYMBOL_MAP, fmtPrice } from './market/symbols.ts';
+import { MARGIN_CALL_LEVEL, PENDING_LABEL, START_BALANCE, metrics, quotesFor, type Deal, type Metrics } from './game/account.ts';
 import { divisionFor } from './game/tiers.ts';
 import { game, useGame } from './game/store.ts';
+import { settings, useSettings } from './game/settings.ts';
+import { mail, useMail } from './game/mail.ts';
 import { net, useNet, type Snapshot } from './online/net.ts';
 import { comms, useComms } from './online/comms.ts';
-import { isMuted, setMuted, sfx } from './sfx.ts';
-import { hhmm, money, pnlClass } from './format.ts';
+import { social, useSocial } from './online/social.ts';
+import { push, type PushState } from './online/push.ts';
+import { sfx } from './sfx.ts';
+import { money, pnlClass } from './format.ts';
+import { useT } from './i18n.ts';
 
-type Tab = 'quotes' | 'trade' | 'chat' | 'wealth' | 'history';
+type Tab = 'trade' | 'chat' | 'wealth' | 'settings';
 interface Toast {
   id: number;
   title: string;
@@ -44,29 +49,35 @@ function snapshotOf(m: Metrics): Snapshot | null {
 }
 const currentMetrics = (): Metrics => metrics(game.account, quotesFor(game.account, Date.now() / 1000));
 const withTimeout = <T,>(p: Promise<T>, ms: number, fallback: T) => Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
+const sideTxt = (s: 1 | -1) => (s === 1 ? 'BUY' : 'SELL');
 
 export default function App() {
   const g = useGame();
   useNet();
   const c = useComms();
+  const so = useSocial();
+  const mb = useMail();
+  const st = useSettings();
+  const t = useT();
   const now = useNow(250);
-  const [sym, setSym] = useState('ATX100');
-  const [tf, setTf] = useState(60);
   const [tab, setTab] = useState<Tab>('trade');
+  const [sub, setSub] = useState<TradeSub>('quotes');
   const [statement, setStatement] = useState<Deal | null>(null);
   const [reentering, setReentering] = useState(false);
-  const [muted, setMutedState] = useState(isMuted());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [fx, setFx] = useState<{ kind: FxKind; n: number } | null>(null);
   const [alias, setAlias] = useState('');
+  const [pushState, setPushState] = useState<PushState>('off');
+  const [profile, setProfile] = useState<string | null>(null);
   const seenNews = useRef<Set<number>>(new Set(recentNews(Date.now() / 1000, 3600).map((e) => e.id)));
   const lastCountdown = useRef(0);
   const wasMarginCall = useRef(false);
+  const lastDiv = useRef(divisionFor(game.account.balance).idx);
 
   const notify = (title: string, body: string, tone: Toast['tone'] = 'info') => {
     const id = Math.random();
-    setToasts((t) => [{ id, title, body, tone }, ...t].slice(0, 2));
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === 'news' ? 5500 : tone === 'good' ? 2600 : 3800);
+    setToasts((x) => [{ id, title, body, tone }, ...x].slice(0, 2));
+    setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), tone === 'news' ? 5500 : tone === 'good' ? 2800 : 3800);
   };
   const glow = (kind: FxKind) => setFx((f) => ({ kind, n: (f?.n ?? 0) + 1 }));
   const pushSnapshot = (force: boolean) => {
@@ -74,23 +85,50 @@ export default function App() {
     if (s) net.update(s, force);
   };
 
-  // game events → sound, glow, toasts, tape, server
+  // theme on <html>
+  useEffect(() => {
+    document.documentElement.dataset.theme = st.theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', st.theme === 'light' ? '#f4f4f6' : st.theme === 'black' ? '#000000' : '#0b0b0c');
+  }, [st.theme]);
+
+  // game events → sound, glow, toasts, mailbox, notifications, tape, server
   useEffect(
     () =>
       game.onEvent((e) => {
-        if (e.type === 'error' && !game.underReview()) notify('Order rejected', e.msg, 'bad');
+        if (e.type === 'error' && !game.underReview()) notify('Trade request rejected', e.msg, 'bad');
         if (e.type === 'open') net.publish({ kind: 'open', sym: e.pos.sym, side: e.pos.side, lots: e.pos.lots });
+        if (e.type === 'placed') notify('Order placed', `${PENDING_LABEL[e.order.type]} ${e.order.lots.toFixed(2)} ${SYMBOL_MAP[e.order.sym].name} at ${fmtPrice(SYMBOL_MAP[e.order.sym], e.order.price)}`, 'info');
+        if (e.type === 'fill') {
+          const p = e.pos;
+          const body = `${PENDING_LABEL[e.record.kind]} ${p.lots.toFixed(2)} ${SYMBOL_MAP[p.sym].name} filled at ${fmtPrice(SYMBOL_MAP[p.sym], p.open)}`;
+          notify('Pending order filled', body, 'good');
+          mail.add('Pending order filled', body, 'good');
+          if (settings.s.notify.fill) void push.local('Pending order filled', body, `fill-${p.id}`);
+          net.publish({ kind: 'open', sym: p.sym, side: p.side, lots: p.lots });
+          sfx.fill(p.side);
+        }
+        if (e.type === 'order_done' && e.record.state !== 'filled') {
+          const r = e.record;
+          const body = `${PENDING_LABEL[r.kind]} ${r.lots.toFixed(2)} ${SYMBOL_MAP[r.sym].name} ${r.state}${r.note ? `: ${r.note}` : ''}`;
+          notify(`Order ${r.state}`, body, r.state === 'rejected' ? 'bad' : 'info');
+          mail.add(`Order ${r.state}`, body, r.state === 'rejected' ? 'bad' : 'info');
+        }
         if (e.type === 'close' || e.type === 'stopout') {
           const d = e.deal;
           net.publish({ kind: 'close', sym: d.sym, side: d.side, lots: d.lots, profit: d.profit });
           pushSnapshot(true);
           if (e.type === 'close') {
             const title = d.reason === 'tp' ? 'Take profit filled' : d.reason === 'sl' ? 'Stop loss filled' : 'Position closed';
-            notify(title, `${SYMBOL_MAP[d.sym].name} ${d.side === 1 ? 'BUY' : 'SELL'} ${d.lots.toFixed(2)} · ${money(d.profit, true)}`, d.profit >= 0 ? 'good' : 'bad');
+            const body = `${SYMBOL_MAP[d.sym].name} ${sideTxt(d.side)} ${d.lots.toFixed(2)} at ${fmtPrice(SYMBOL_MAP[d.sym], d.close)} · ${money(d.profit, true)}`;
+            notify(e.away ? `${title} while you were away` : title, body, d.profit >= 0 ? 'good' : 'bad');
+            if (d.reason !== 'manual') {
+              mail.add(e.away ? `${title} while you were away` : title, `${body}\nFilled ${new Date(d.closeTime * 1000).toLocaleString()}.`, d.profit >= 0 ? 'good' : 'bad');
+              if (settings.s.notify[d.reason === 'tp' ? 'tp' : 'sl']) void push.local(`${title} · ${money(d.profit, true)}`, body, `close-${d.id}`);
+            }
             if (d.profit >= 25) {
               sfx.jackpot();
               glow('win');
-              setTimeout(() => setStatement(d), 700);
+              if (!e.away) setTimeout(() => setStatement(d), 700);
             } else if (d.profit > 0) {
               sfx.cash();
               glow('win');
@@ -105,6 +143,12 @@ export default function App() {
           sfx.vault();
           void net.lockAccount();
           pushSnapshot(true);
+          mail.add('Account frozen for credit review', `${e.reason}. All positions were liquidated and pending orders cancelled. Trading resumes after a 5-hour review.`, 'bad', 'Apex Private Banking');
+          if (settings.s.notify.stopout) void push.local('Account frozen · stop-out', e.reason, 'stopout');
+        }
+        if (e.type === 'account') {
+          pushSnapshot(true);
+          notify('Account', `Now trading #${e.login}`, 'info');
         }
       }),
     [], // eslint-disable-line react-hooks/exhaustive-deps
@@ -115,13 +159,32 @@ export default function App() {
     const s = snapshotOf(currentMetrics());
     if (!s || !g.profile) return;
     net.start(s);
-    void comms.start({ id: g.profile.id, secret: g.profile.secret, name: g.profile.name });
-  }, [g.profile]);
+    const me = { id: g.profile.id, secret: g.profile.secret, name: g.profile.name };
+    void comms.start(me);
+    void social.start(me);
+    void push.init(me).then(setPushState);
+    if (!mail.items.length) mail.add('Welcome to Apex Capital', `Your demo account #${game.account.login} is open with ${money(START_BALANCE)}.\n\nTrade → Quotes lists 52 instruments in Forex, Metals and Nasdaq. Swipe a symbol left for New order / Open chart / Delete. Turn on notifications in Settings to hear about take-profit fills even when the app is closed.`, 'info');
+  }, [g.profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // persist immediately when backgrounded
+  // profile changes → server
+  useEffect(() => {
+    if (g.profile) void social.setAvatar(g.profile.avatar);
+  }, [g.profile?.avatar]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // re-forecast push schedule whenever positions / orders change
+  const tradeKey = JSON.stringify([g.account.login, g.account.positions.map((p) => [p.id, p.sl, p.tp]), g.account.orders.map((o) => [o.id, o.price, o.sl, o.tp, o.type]), g.account.lockedUntil]);
+  useEffect(() => {
+    if (pushState === 'server') push.schedule(game.account);
+  }, [tradeKey, pushState]);
+
+  // persist immediately when backgrounded, and lock in the final forecast
   useEffect(() => {
     const save = () => game.flush();
-    const vis = () => document.visibilityState === 'hidden' && game.flush();
+    const vis = () => {
+      if (document.visibilityState !== 'hidden') return;
+      game.flush();
+      push.schedule(game.account, true);
+    };
     window.addEventListener('pagehide', save);
     document.addEventListener('visibilitychange', vis);
     return () => {
@@ -130,7 +193,7 @@ export default function App() {
     };
   }, []);
 
-  const quotes = useMemo(() => quotesFor(g.account, now, [sym]), [g.account, now, sym]);
+  const quotes = useMemo(() => quotesFor(g.account, now), [g.account, now]);
   const m = metrics(g.account, quotes);
   const upcoming = upcomingNews(now);
   const marginCall = m.level !== null && m.level < MARGIN_CALL_LEVEL;
@@ -144,6 +207,9 @@ export default function App() {
       if (seenNews.current.has(ev.id)) continue;
       seenNews.current.add(ev.id);
       if (frozen) continue;
+      // only surface news that matters to this trader: macro, or an instrument they hold/watch
+      const held = g.account.positions.some((p) => p.sym === ev.symbol || SYMBOL_MAP[p.sym].derive?.a === ev.symbol || SYMBOL_MAP[p.sym].derive?.b === ev.symbol);
+      if (ev.kind !== 'macro' && ev.kind !== 'shock' && !held && ev.symbol !== st.sym) continue;
       const title = ev.kind === 'macro' ? 'Economic release' : ev.kind === 'shock' ? 'Market alert' : `Wire · ${SYMBOL_MAP[ev.symbol ?? '']?.name ?? ''}`;
       notify(title, ev.headline, 'news');
       if (ev.kind === 'macro' || ev.kind === 'shock') {
@@ -164,6 +230,13 @@ export default function App() {
       notify('Margin call', `Margin level ${m.level?.toFixed(0)}%. Positions are liquidated at 50%.`, 'bad');
     }
     wasMarginCall.current = marginCall;
+    const di = divisionFor(g.account.balance).idx;
+    if (di > lastDiv.current && !frozen) {
+      const d = divisionFor(g.account.balance);
+      notify('Promotion', `You reached ${d.label}. Unlocked: ${d.symbol}`, 'good');
+      mail.add(`Promoted to ${d.label}`, `Congratulations. Your balance crossed ${money(d.min)}. Status unlocked: ${d.symbol}.`, 'good', 'Apex Private Banking');
+    }
+    lastDiv.current = di;
     if (Math.floor(now * 4) % 4 === 0) pushSnapshot(false);
   }, [now]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -180,14 +253,14 @@ export default function App() {
     setReentering(false);
   };
 
-  const pick = (s: string) => {
-    setSym(s);
-    setTab('trade');
+  const go = (x: Tab) => {
+    setTab(x);
     sfx.tap();
   };
-  const go = (t: Tab) => {
-    setTab(t);
-    sfx.tap();
+  const openSymbol = (s: string) => {
+    settings.set({ sym: s });
+    setSub('chart');
+    setTab('trade');
   };
 
   // ---------------------------------------------------------------- onboarding
@@ -197,9 +270,9 @@ export default function App() {
       <div className="app">
         <div className="onboard">
           <div className="wordmark">APEX CAPITAL</div>
-          <h1>Your private trading account is ready.</h1>
-          <p>Opening balance {money(START_BALANCE)}. Grow it through seven tiers, from Bronze to Quant. Breach your risk limits and the account is frozen for a five-hour credit review.</p>
-          <label className="eyebrow" htmlFor="alias">Account alias</label>
+          <h1>Your trading account is ready.</h1>
+          <p>Opening balance {money(START_BALANCE)}. 52 instruments across Forex, Metals and Nasdaq with a MetaTrader 5-grade terminal. Grow it through seven tiers. Blow it and the account is frozen for a five-hour credit review.</p>
+          <label className="eyebrow" htmlFor="alias">Username</label>
           <input id="alias" value={alias} maxLength={18} autoComplete="off" placeholder="e.g. JLaurent" onChange={(e) => setAlias(e.target.value.replace(/[^\w.-]/g, ''))} />
           <button className="primary" disabled={!ok} onClick={() => { game.setProfile(alias); sfx.cash(); }}>Open account</button>
           <p className="fine">Simulated markets and funds. Not investment advice.</p>
@@ -208,22 +281,18 @@ export default function App() {
     );
   }
 
-  const def = SYMBOL_MAP[sym];
-  const q = quotes[sym];
-  const ref = midPrice(sym, effectiveTime(def, now) - 86400);
-  const chg = ((q.mid - ref) / ref) * 100;
-  const news = recentNews(now, 1800);
   const div = divisionFor(g.account.balance);
-  const macro = upcoming.find((e) => e.kind === 'macro');
-  const chatUnread = c.communities.reduce((s, x) => s + (c.membership(x.id) ? c.unread(x.id) : 0), 0);
+  const chatUnread = c.communities.reduce((s, x) => s + (c.membership(x.id) ? c.unread(x.id) : 0), 0) + so.totalUnread();
 
   return (
     <div className="app">
       <header className="hdr">
-        <Badge d={div} size={34} />
+        <button className="avbtn" aria-label="Profile" onClick={() => go('settings')}>
+          <Avatar name={g.profile.name} src={g.profile.avatar} size={36} />
+        </button>
         <div className="brand">
           <span className="wordmark">APEX</span>
-          <span className="divline">{div.label} · {g.profile.name}</span>
+          <span className="divline"><Badge d={div} size={14} /> {div.label} · {g.profile.name}</span>
         </div>
         <div className="eq">
           <b className="num">
@@ -232,107 +301,45 @@ export default function App() {
           </b>
           <span className="num">{g.account.positions.length ? <span className={pnlClass(m.floating)}>{money(m.floating, true)} open</span> : `Balance ${money(m.balance)}`}</span>
         </div>
-        <button className="iconbtn" aria-label={muted ? 'Unmute' : 'Mute'} onClick={() => { setMuted(!muted); setMutedState(!muted); }}>
-          {muted ? <Icon.mute /> : <Icon.sound />}
-        </button>
       </header>
+      {marginCall && tab !== 'trade' && <div className="mcbar">Margin call · level {m.level?.toFixed(0)}%</div>}
 
       <div className="tabbody">
-        {tab === 'quotes' && <Quotes now={now} current={sym} onPick={pick} />}
-
-        {/* trade tab: chart stays mounted to keep its state */}
-        <div style={tab === 'trade' ? undefined : { display: 'none' }}>
-          <div className="symhdr">
-            <span className="mono-badge">{def.mono}</span>
-            <span className="qname">
-              <b>{def.name}</b>
-              <small>{def.desc}</small>
-            </span>
-            <span className="px">
-              <Flash value={q.bid} className="num" arrow>
-                <b>{fmtPrice(def, q.bid)}</b>
-              </Flash>
-              <small className={`num ${pnlClass(chg)}`}>{chg >= 0 ? '+' : '−'}{Math.abs(chg).toFixed(2)}%</small>
-            </span>
-          </div>
-          <div className="ticker">
-            {macro ? (
-              <>
-                <span className="tag sched">SCHEDULED</span>
-                <span className="txt">{macro.teaser}</span>
-                <span className="cd">{Math.ceil(macro.t0 - now)}s</span>
-              </>
-            ) : upcoming[0] ? (
-              <>
-                <span className="tag">DESK</span>
-                <span className="txt">{upcoming[0].teaser}</span>
-              </>
-            ) : news[0] ? (
-              <>
-                <span className={`tag ${now - news[0].t0 < 90 ? 'live' : ''}`}>{now - news[0].t0 < 90 ? 'LIVE' : hhmm(news[0].t0)}</span>
-                <span className="txt">{news[0].headline}</span>
-              </>
-            ) : (
-              <>
-                <span className="tag">WIRE</span>
-                <span className="txt">No market-moving headlines.</span>
-              </>
-            )}
-          </div>
-          <div className="chartwrap">
-            <div className="tfbar">
-              {TIMEFRAMES.map((t) => (
-                <button key={t.id} className={tf === t.sec ? 'on' : ''} onClick={() => { setTf(t.sec); sfx.tap(); }}>{t.id}</button>
-              ))}
-              {!q.open && <span className="closed">Closed · opens {new Date(nextOpen(def, now) * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
-            </div>
-            <Chart sym={sym} tfSec={tf} now={now} positions={g.account.positions} showEma />
-          </div>
-          <div className="acct">
-            <div><span>Balance</span><b>{money(m.balance)}</b></div>
-            <div><span>Equity</span><b className={pnlClass(m.floating)}>{money(m.equity)}</b></div>
-            <div><span>Free</span><b>{money(m.free)}</b></div>
-            <div><span>Level</span><b className={marginCall ? 'down' : ''}>{m.level === null ? '—' : m.level > 99999 ? '∞' : `${m.level.toFixed(0)}%`}</b></div>
-          </div>
-          {marginCall && <div className="mcbar">Margin call. Liquidation at 50% margin level triggers a five-hour account review.</div>}
-          <OrderPanel sym={sym} now={now} />
-          <Positions now={now} onPick={pick} />
-        </div>
-
-        {tab === 'chat' && <Communities now={now} notify={notify} onOpenSymbol={pick} />}
-        {tab === 'wealth' && <Wealth m={m} />}
-        {tab === 'history' && <History onStatement={setStatement} />}
+        {tab === 'trade' && <TradeTab now={now} m={m} sub={sub} onSub={setSub} onShare={setStatement} />}
+        {tab === 'chat' && <ChatTab now={now} notify={notify} onOpenSymbol={openSymbol} />}
+        {tab === 'wealth' && <WealthTab m={m} onProfile={setProfile} />}
+        {tab === 'settings' && <SettingsTab now={now} notify={notify} pushState={pushState} setPushState={setPushState} />}
       </div>
 
       <nav className="tabs">
         {([
-          ['quotes', 'Quotes', Icon.quotes],
-          ['trade', 'Trade', Icon.trade],
-          ['chat', 'Chat', Icon.chat],
-          ['wealth', 'Wealth', Icon.wealth],
-          ['history', 'History', Icon.history],
-        ] as const).map(([id, label, I]) => (
+          ['trade', t('nav.trade'), Icon.trade, g.account.positions.length],
+          ['chat', t('nav.chat'), Icon.chat, chatUnread],
+          ['wealth', t('nav.wealth'), Icon.wealth, 0],
+          ['settings', t('nav.settings'), Icon.settings, mb.unread()],
+        ] as const).map(([id, label, I, badge]) => (
           <button key={id} className={tab === id ? 'on' : ''} onClick={() => go(id)}>
             <I />
             {label}
-            {id === 'chat' && chatUnread > 0 && <span className="dot">{chatUnread > 99 ? '99+' : chatUnread}</span>}
+            {badge > 0 && <span className={`dot ${id === 'trade' ? 'soft' : ''}`}>{badge > 99 ? '99+' : badge}</span>}
           </button>
         ))}
       </nav>
 
       <ScreenFx fx={fx} />
       <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.tone}`}>
+        {toasts.map((x) => (
+          <div key={x.id} className={`toast ${x.tone}`}>
             <i />
             <div>
-              <b>{t.title}</b>
-              <span>{t.body}</span>
+              <b>{x.title}</b>
+              <span>{x.body}</span>
             </div>
           </div>
         ))}
       </div>
 
+      {profile && <ProfileSheet id={profile} notify={notify} onClose={() => setProfile(null)} onMessage={() => { setProfile(null); setTab('chat'); }} onOpenGroup={() => { setProfile(null); setTab('chat'); }} />}
       {statement && <FlexCard deal={statement} name={g.profile.name} balance={g.account.balance} onClose={() => setStatement(null)} />}
       {frozen && <Lockout now={now} busy={reentering} onReenter={reenter} />}
     </div>

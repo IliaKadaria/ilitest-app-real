@@ -1,6 +1,6 @@
-import { midPrice } from '../market/engine.ts';
+import { midPrice, pnlFor } from '../market/engine.ts';
 import { noise1, rand, strSeed } from '../market/rng.ts';
-import { SYMBOLS, SYMBOL_MAP, isOpen, pnlFor } from '../market/symbols.ts';
+import { SYMBOLS, SYMBOL_MAP, isOpen } from '../market/symbols.ts';
 
 // Deterministic NPC traders: every device sees the same desk activity at the
 // same second, with P&L computed from the shared market.
@@ -42,7 +42,7 @@ export function npcTradeForSlot(slot: number): NpcTrade | null {
 export function npcProfit(tr: NpcTrade): number {
   const def = SYMBOL_MAP[tr.sym];
   const close = midPrice(tr.sym, tr.tClose);
-  return pnlFor(def, (close - tr.openPx) * tr.side - def.spread, tr.lots, close);
+  return pnlFor(def, (close - tr.openPx) * tr.side - def.spread, tr.lots, tr.tClose);
 }
 
 /** Slowly drifting NPC balances spanning every tier (€120 → ~€12M). */

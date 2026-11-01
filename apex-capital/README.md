@@ -12,14 +12,43 @@ Simulated markets and funds. Not investment advice.
 | Opening balance | **€100.00** |
 | Progression | **7 tiers / 30 divisions** (Bronze III → Quant I) on account balance, each with its own badge and status symbol (`src/game/tiers.ts`) |
 | Blown account | Stop-out (50% margin level), equity ≤ 0, or balance < €1 → all positions liquidated, **5-hour lockout** on a full-screen *Private Banking · Credit Review* screen. Terminal unreachable until it ends, then a new €100 credit line. Negative balance protection applies. |
-| Forex (EUR/USD, GBP/USD, USD/JPY) | 24/5: Sun 22:00 → Fri 22:00 UTC, 1:500 |
-| Metals (XAU/USD, XAG/USD) | 24/5 with daily 22:00–23:00 UTC break, 1:200 |
-| US Tech (ATX100 index, NVRA, QBTX, HELX: fictional) | **Open 24/7**, index 1:200, stocks 1:20 |
+| Forex (18: 7 majors + 11 crosses) | 24/5: Sun 22:00 → Fri 22:00 UTC, 1:500. Crosses are derived from their simulated legs (EUR/JPY = EUR/USD × USD/JPY) so prices stay triangularly consistent |
+| Metals (16: gold, silver, platinum, palladium, copper, aluminium, nickel, zinc, lead + gold/silver crosses) | 24/5 with daily 22:00–23:00 UTC break, 1:200 (base metals 1:100) |
+| Nasdaq (18: NAS100 + 17 large caps) | **Open 24/7** on a simulated venue, index 1:200, stocks 1:20. Real tickers, simulated prices; stock headlines only describe order flow, never company fundamentals |
+| Account currency | EUR. P&L and margin are converted from the quote currency at the live simulated rate |
 | Communities | Created **only by admins**. Admins toggle **Broadcast mode** (read-only for members), post announcements, polls and trade signals, delete messages, remove members. |
 
 Prices are a deterministic function of time, so every player sees the same market and
 headlines with no game server. Closed markets freeze at the close and gap on reopen.
 SL/TP and stop-outs that happened while the app was closed are replayed and filled at the moment they hit.
+
+## App layout (bottom bar)
+
+| Tab | Contents |
+| --- | --- |
+| **Trade** | MT5 sub-tabs: **Quotes** (Forex / Metals / Nasdaq, swipe a row left → New order · Open chart · Delete, “Add symbol”), **Chart** (M1–D1, bars/candles/line, 10 indicators incl. RSI/MACD/Stochastic/ATR/CCI sub-windows, drawing objects: horizontal/vertical/trend line, rectangle, Fibonacci, text; one-click trading panel, OHLC + data window), **Trade** (balance/equity/margin/free/level, positions, pending orders, modify/close), **History** (Positions / Orders / Deals, period + symbol filters, **Show on chart** jumps to the exact entry → exit on the right timeframe) |
+| **Chat** | Admin-run communities (WhatsApp-style, broadcast mode, polls, signals), username search, friend requests, profiles (picture, rank, balance, money made, win rate, group chats), private DMs |
+| **Wealth** | Rank (division + all 30 tiers), Leaderboard (Worldwide / Your group / Friends), Your balance (balance, equity, margin, free margin, level, balance curve, stats) |
+| **Settings** | Profile picture + username, New account (up to 5 demo accounts), Mailbox, News, Interface (6 languages, dark / OLED / light), Charts (all MT5 toggles + 12 colours + presets), Notifications |
+
+Order ticket = MT5: Market Execution with deviation (requotes), Buy/Sell Limit, Buy/Sell Stop, Buy/Sell Stop Limit, SL/TP steppers, expiration (GTC / Today / Specified), live tick chart.
+
+## Push notifications (TP filled while the app is closed)
+
+The market is a pure function of time, so the client forecasts every TP/SL/stop-out/pending fill for the next
+72 h (`src/game/forecast.worker.ts`, same code + same 5 s grid as the replay on reopen) and replaces its schedule
+on the server whenever positions change. A cron job delivers them as Web Push.
+
+1. Run `supabase/migrations/20261102000000_apex_social_push.sql`.
+2. `npx web-push generate-vapid-keys` → put the public key in `.env.production` as `VITE_VAPID_PUBLIC_KEY`.
+3. Deploy the function: `supabase functions deploy send-due-pushes --no-verify-jwt` and
+   `supabase secrets set VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=… VAPID_SUBJECT=mailto:you@example.com CRON_SECRET=<random>`.
+4. Enable `pg_cron` + `pg_net`, store the function URL and `CRON_SECRET` in Vault and schedule it every minute
+   (exact SQL at the bottom of the migration).
+
+Without steps 2–4 notifications still fire while the app is open in the background, and fills that happened while
+it was closed are replayed on reopen (toast + Mailbox).
+iPhone: web push only works once the app is added to the Home Screen (iOS 16.4+).
 
 ## Run
 
@@ -37,6 +66,8 @@ Run both migrations in the SQL editor, in order:
 1. `supabase/migrations/20261031000000_larp_core.sql`: players, live tape, secret-checked RPCs
 2. `supabase/migrations/20261101000000_apex_communities.sql`: €100 accounts, server-side 5h lock,
    communities, members, messages, polls, moderation, house communities
+3. `supabase/migrations/20261102000000_apex_social_push.sql`: new symbol universe, avatars, friends,
+   private DMs (RPC-only reads), push subscriptions + forecast schedule
 
 Make yourself an admin after opening an account once in the app:
 

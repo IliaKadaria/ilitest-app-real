@@ -2,6 +2,7 @@ import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
 import { getItem, setItem } from '../storage.ts';
 import { net } from './net.ts';
+import { NPC_NAMES } from './npc.ts';
 
 // ---------------------------------------------------------------------------
 // Communities: admin-created groups, WhatsApp-style chat, broadcast mode,
@@ -107,12 +108,12 @@ function seedDb(): LocalDb {
       c('macro', 'Macro Desk', 'Pre-release briefings on CPI, FOMC and payrolls.', true),
       c('alpha', 'Alpha Signals', 'Desk trade ideas with entry, stop and target.', true),
     ],
-    members: ['lounge', 'macro', 'alpha'].map((communityId) => ({ communityId, playerId: HOUSE, role: 'admin' as const, banned: false })),
+    members: [...['lounge', 'macro', 'alpha'].map((communityId) => ({ communityId, playerId: HOUSE, role: 'admin' as const, banned: false })), ...npcMembers()],
     messages: [
       m('s1', 'lounge', 'Apex Desk', 'system', 'Apex Desk created the community', 86400 * 9),
       m('l1', 'lounge', 'M.Laurent', 'text', 'Gold holding the 2,640 shelf again. Patience pays here.', 3600 * 5),
       m('l2', 'lounge', 'K.Tanaka', 'text', 'Yen desk is quiet until Tokyo CPI. Flat into the print.', 3600 * 3),
-      m('l3', 'lounge', 'A.Okafor', 'text', 'Took partials on NVRA after the guidance headline. Runner stop at entry.', 1800),
+      m('l3', 'lounge', 'A.Okafor', 'text', 'Took partials on NVDA after that block print. Runner stop at entry.', 1800),
       m('s2', 'macro', 'Apex Desk', 'system', 'Broadcast mode on: only admins can send messages', 86400 * 8),
       m('a1', 'macro', 'Apex Desk', 'announcement', 'US CPI prints this week. Expect spreads to widen 4x for ~20s around the release. Size down.', 3600 * 6),
       m('p1', 'macro', 'Apex Desk', 'poll', 'Where does EUR/USD close the week?', 3600 * 4, { options: ['Above 1.0900', '1.0800 – 1.0900', 'Below 1.0800'] }),
@@ -125,6 +126,12 @@ function seedDb(): LocalDb {
       { messageId: 'p1', playerId: 'npc-A.Okafor', option: 1 },
     ],
   };
+}
+
+/** Deterministic NPC membership so groups have real-looking rosters. */
+function npcMembers(): Member[] {
+  const rooms = ['lounge', 'macro', 'alpha'];
+  return NPC_NAMES.flatMap((n, i) => rooms.filter((_, k) => (i + k) % 3 !== 2 || i < 4).map((communityId) => ({ communityId, playerId: `npc-${n}`, role: 'member' as const, banned: false })));
 }
 
 class LocalBackend implements Backend {
@@ -142,7 +149,14 @@ class LocalBackend implements Backend {
   private read(): LocalDb {
     try {
       const raw = getItem(LOCAL_KEY);
-      if (raw) return JSON.parse(raw) as LocalDb;
+      if (raw) {
+        const db = JSON.parse(raw) as LocalDb;
+        if (!db.members.some((m) => m.playerId.startsWith('npc-'))) {
+          db.members.push(...npcMembers());
+          setItem(LOCAL_KEY, JSON.stringify(db));
+        }
+        return db;
+      }
     } catch {
       /* corrupt → reseed */
     }

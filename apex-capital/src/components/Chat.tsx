@@ -6,6 +6,11 @@ import { hhmm } from '../format.ts';
 import { sfx } from '../sfx.ts';
 import { Icon } from './Icons.tsx';
 import { Tape } from './Panels.tsx';
+import { Avatar } from './Avatar.tsx';
+import { social } from '../online/social.ts';
+import { compactMoney } from '../format.ts';
+import { Badge } from './Badge.tsx';
+import { divisionFor } from '../game/tiers.ts';
 
 type Notify = (title: string, body: string, tone?: 'good' | 'bad' | 'info') => void;
 
@@ -41,10 +46,13 @@ function preview(m: Msg | null): string {
 
 // ====================================================================== list
 
-export function Communities({ now, notify, onOpenSymbol }: { now: number; notify: Notify; onOpenSymbol: (sym: string) => void }) {
+export function Communities({ now, notify, onOpenSymbol, onProfile, openRoom }: { now: number; notify: Notify; onOpenSymbol: (sym: string) => void; onProfile: (id: string) => void; openRoom?: string | null }) {
   const c = useComms();
-  const [room, setRoom] = useState<string | null>(null);
+  const [room, setRoom] = useState<string | null>(openRoom ?? null);
   const [creating, setCreating] = useState(false);
+  useEffect(() => {
+    if (openRoom) setRoom(openRoom);
+  }, [openRoom]);
 
   const sorted = useMemo(
     () => [...c.communities].sort((a, b) => (c.lastMessage(b.id)?.createdAt ?? b.createdAt) - (c.lastMessage(a.id)?.createdAt ?? a.createdAt)),
@@ -54,7 +62,7 @@ export function Communities({ now, notify, onOpenSymbol }: { now: number; notify
 
   if (room === 'tape') return <Shell title="Live Tape" subtitle="All desk & member executions" onBack={() => setRoom(null)} body={<div className="msgs" style={{ padding: 0 }}><Tape now={now} /></div>} />;
   const active = c.communities.find((x) => x.id === room);
-  if (active) return <Room c={active} notify={notify} onBack={() => setRoom(null)} onOpenSymbol={onOpenSymbol} />;
+  if (active) return <Room c={active} notify={notify} onBack={() => setRoom(null)} onOpenSymbol={onOpenSymbol} onProfile={onProfile} />;
 
   return (
     <div className="list chatlist">
@@ -128,7 +136,7 @@ function Shell({ title, subtitle, onBack, body }: { title: string; subtitle: str
 
 // ====================================================================== room
 
-function Room({ c, notify, onBack, onOpenSymbol }: { c: Community; notify: Notify; onBack: () => void; onOpenSymbol: (sym: string) => void }) {
+function Room({ c, notify, onBack, onOpenSymbol, onProfile }: { c: Community; notify: Notify; onBack: () => void; onOpenSymbol: (sym: string) => void; onProfile: (id: string) => void }) {
   const store = useComms();
   const msgs = store.roomMessages(c.id);
   const member = store.membership(c.id);
@@ -137,6 +145,7 @@ function Room({ c, notify, onBack, onOpenSymbol }: { c: Community; notify: Notif
   const [text, setText] = useState('');
   const [composer, setComposer] = useState(false);
   const [focus, setFocus] = useState<string | null>(null);
+  const [roster, setRoster] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -171,6 +180,7 @@ function Room({ c, notify, onBack, onOpenSymbol }: { c: Community; notify: Notif
           <b>{c.name}</b>
           <small>{store.memberCount(c.id)} member{store.memberCount(c.id) === 1 ? '' : 's'} · {c.broadcast ? 'Broadcast only' : 'Open chat'}</small>
         </span>
+        <button className="iconbtn" aria-label="Members" onClick={() => setRoster(true)}><Icon.users /></button>
         {member && !admin && <button className="ghost" onClick={() => act(store.leave(c.id), 'Left community')}>Leave</button>}
       </div>
 
@@ -197,7 +207,7 @@ function Room({ c, notify, onBack, onOpenSymbol }: { c: Community; notify: Notif
           return (
             <div key={m.id} style={{ display: 'contents' }}>
               {sep}
-              <Bubble m={m} c={c} focused={focus === m.id} onFocus={() => setFocus(focus === m.id ? null : m.id)} act={act} onOpenSymbol={onOpenSymbol} />
+              <Bubble m={m} c={c} focused={focus === m.id} onFocus={() => setFocus(focus === m.id ? null : m.id)} act={act} onOpenSymbol={onOpenSymbol} onProfile={onProfile} />
             </div>
           );
         })}
@@ -233,11 +243,42 @@ function Room({ c, notify, onBack, onOpenSymbol }: { c: Community; notify: Notif
       )}
 
       {composer && <AdminComposer c={c} notify={notify} onClose={() => setComposer(false)} />}
+      {roster && <Roster c={c} onClose={() => setRoster(false)} onProfile={(id) => { setRoster(false); onProfile(id); }} />}
     </div>
   );
 }
 
-function Bubble({ m, c, focused, onFocus, act, onOpenSymbol }: { m: Msg; c: Community; focused: boolean; onFocus: () => void; act: (p: Promise<string | null>, ok?: string) => Promise<boolean>; onOpenSymbol: (sym: string) => void }) {
+function Roster({ c, onClose, onProfile }: { c: Community; onClose: () => void; onProfile: (id: string) => void }) {
+  const store = useComms();
+  const rows = store.members
+    .filter((m) => m.communityId === c.id && !m.banned && m.playerId !== 'house')
+    .map((m) => ({ m, card: m.playerId === store.me?.id ? null : social.card(m.playerId) }))
+    .sort((a, b) => (b.card?.balance ?? 0) - (a.card?.balance ?? 0));
+  return (
+    <div className="modal" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="grab" />
+        <h3>{c.name} · {rows.length} members</h3>
+        <div className="addlist">
+          {rows.map(({ m, card }) => {
+            const mine = m.playerId === store.me?.id;
+            const name = mine ? 'You' : card?.name ?? 'Member';
+            const bal = card?.balance ?? 0;
+            return (
+              <button key={m.playerId} className="addrow" disabled={mine} onClick={() => onProfile(m.playerId)}>
+                <Avatar name={name} src={card?.avatar} size={38} />
+                <span className="qname"><b>{name}{m.role === 'admin' && <span className="adm">ADMIN</span>}</b><small>{card ? `${divisionFor(bal).label} · ${compactMoney(bal)}` : ''}</small></span>
+                {card && <Badge d={divisionFor(bal)} size={26} />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Bubble({ m, c, focused, onFocus, act, onOpenSymbol, onProfile }: { m: Msg; c: Community; focused: boolean; onFocus: () => void; act: (p: Promise<string | null>, ok?: string) => Promise<boolean>; onOpenSymbol: (sym: string) => void; onProfile: (id: string) => void }) {
   const store = comms;
   if (m.kind === 'system') return <div className="sysmsg">{m.body}</div>;
   const mine = m.playerId === store.me?.id;
@@ -250,7 +291,7 @@ function Bubble({ m, c, focused, onFocus, act, onOpenSymbol }: { m: Msg; c: Comm
   return (
     <div className={`bubble ${mine ? 'mine' : 'theirs'} ${cls}`} onClick={onFocus}>
       {!mine && (
-        <span className="who">
+        <span className="who" onClick={(e) => { if (m.playerId && m.playerId !== 'house') { e.stopPropagation(); onProfile(m.playerId); } }}>
           {m.name}
           {authorAdmin && <span className="adm">ADMIN</span>}
         </span>

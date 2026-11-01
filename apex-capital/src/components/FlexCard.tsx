@@ -62,7 +62,7 @@ function draw(cv: HTMLCanvasElement, d: Deal, name: string, balance: number) {
   ctx.fillText(money(d.profit, true), 88, 450);
   ctx.fillStyle = '#8e8e93';
   ctx.font = `400 26px ${SANS}`;
-  const roi = (d.profit / requiredMargin(d.sym, d.lots, d.open)) * 100;
+  const roi = (d.profit / requiredMargin(d.sym, d.lots, d.open, d.openTime)) * 100;
   ctx.fillText(`Realized ${win ? 'profit' : 'loss'}  ·  ${roi >= 0 ? '+' : '−'}${Math.abs(roi).toFixed(1)}% on margin`, 96, 500);
 
   // price path during the trade

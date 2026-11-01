@@ -1,5 +1,5 @@
 import { noise1, rand, strSeed } from './rng.ts';
-import { SYMBOLS, SYMBOL_MAP, effectiveTime, isOpen, type SymbolDef } from './symbols.ts';
+import { ACCOUNT_CCY, SYMBOLS, SYMBOL_MAP, effectiveTime, isOpen, type Ccy, type SymbolDef } from './symbols.ts';
 
 // ---------------------------------------------------------------------------
 // Price model: fractal value noise (Brownian-like up to ~12 days, then
@@ -19,6 +19,7 @@ interface SymState {
 }
 const symState: Record<string, SymState> = {};
 for (const s of SYMBOLS) {
+  if (s.derive) continue;
   const seed = strSeed(s.id) ^ WORLD_SEED;
   const sigmaSec = s.vol1m / Math.sqrt(60);
   const periods: number[] = [];
@@ -76,34 +77,59 @@ const UP_LINES: Record<string, string[]> = {
   EURUSD: ['Eurozone composite PMI beats at 52.4', 'ECB’s Lagarde: further tightening “cannot be excluded”', 'German Ifo climate improves for a third month'],
   GBPUSD: ['UK CPI hotter than expected at 4.2% y/y', 'BoE’s Bailey: rates on hold “for some time”', 'UK wage growth accelerates to 6.1%'],
   USDJPY: ['BoJ leaves yield-curve control unchanged', 'US–Japan 10Y spread widens to 2026 high', 'Japan trade deficit widens more than forecast'],
+  USDCHF: ['Swiss CPI undershoots; SNB cut odds rise', 'SNB signals tolerance for a weaker franc'],
+  AUDUSD: ['RBA holds with hawkish tilt', 'China stimulus lifts commodity currencies', 'Australian jobs beat forecasts by 30k'],
+  USDCAD: ['Crude slides 3%; loonie under pressure', 'BoC cuts 25bp, signals more to come'],
+  NZDUSD: ['RBNZ surprises with hawkish guidance', 'Global dairy auction prices jump 4.8%'],
   XAUUSD: ['Central-bank gold buying hits record quarter', 'Safe-haven bid lifts bullion as geopolitical risk rises', 'Gold ETF inflows turn positive for the first time in 6 weeks'],
-  XAGUSD: ['Solar demand pushes 2027 silver deficit forecast higher', 'Silver supply disruption at major Mexican mine'],
-  ATX100: ['Megacap earnings lift Apex Tech 100 futures', 'AI capex guidance surprises to the upside across the index'],
-  NVRA: ['Novara beats Q3 estimates, raises full-year guidance', 'Novara signs multi-year AI accelerator supply deal'],
-  QBTX: ['Qubitron demonstrates error-corrected 1,000-qubit chip', 'Qubitron wins sovereign quantum-compute tender'],
-  HELX: ['Helix Robotics wins $2.1bn logistics contract', 'Helix Robotics margins expand on automation demand'],
+  XAGUSD: ['Solar demand pushes 2027 silver deficit forecast higher', 'Silver supply disruption at a major Mexican mine'],
+  XPTUSD: ['Platinum deficit forecast widens for 2027', 'South African smelter outage cuts platinum supply'],
+  XPDUSD: ['Palladium supply tightens on smelter maintenance', 'Auto-catalyst demand rebounds; palladium bid'],
+  XCUUSD: ['Grid-spending plan boosts copper demand outlook', 'Chilean mine strike threatens copper output'],
+  XALUSD: ['Smelter power cuts tighten aluminium supply', 'Aluminium inventories fall to multi-year low'],
+  XNIUSD: ['Battery-grade nickel demand beats forecasts', 'Export curbs tighten nickel ore supply'],
+  XZNUSD: ['Zinc smelter closures tighten concentrate market', 'Galvanising demand lifts zinc premiums'],
+  XPBUSD: ['Lead stocks draw as battery demand firms', 'Recycling plant outage tightens lead supply'],
+  NAS100: ['Tech rally broadens as yields ease', 'AI capex optimism lifts US Tech 100 futures', 'Megacap strength pushes NAS100 to session high'],
 };
 const DOWN_LINES: Record<string, string[]> = {
   EURUSD: ['Eurozone inflation undershoots; ECB cut bets rise', 'German factory orders slump 3.1% m/m', 'ECB minutes flag growing downside risks'],
   GBPUSD: ['UK retail sales contract 1.8% m/m', 'BoE votes 6–3 to cut Bank Rate', 'UK GDP unexpectedly contracts in Q3'],
   USDJPY: ['Japan MoF confirms yen intervention', 'BoJ Governor hints at policy normalisation', 'Tokyo CPI surprises higher; JGB yields jump'],
+  USDCHF: ['Safe-haven flows bid the Swiss franc', 'SNB holds rates, drops intervention pledge'],
+  AUDUSD: ['Australian jobs miss; RBA cut bets climb', 'Iron-ore slump weighs on the Aussie'],
+  USDCAD: ['Canadian jobs blowout lifts the loonie', 'Crude jumps 4% on supply outage'],
+  NZDUSD: ['RBNZ cuts 50bp in a surprise move', 'Global dairy auction prices slump 5.1%'],
   XAUUSD: ['Real yields climb; bullion under pressure', 'Gold ETF outflows accelerate for a fourth week'],
   XAGUSD: ['Industrial metals slide on weak China data', 'Silver inventories at COMEX rise sharply'],
-  ATX100: ['Tech selloff deepens as bond yields jump', 'Regulators open antitrust probe into index heavyweights'],
-  NVRA: ['Novara guides below consensus on supply constraints', 'New export restrictions weigh on Novara'],
-  QBTX: ['Qubitron delays commercial launch to 2028', 'Short report questions Qubitron revenue recognition'],
-  HELX: ['Helix Robotics recalls 12,000 warehouse units', 'Helix Robotics CFO departs unexpectedly'],
+  XPTUSD: ['Platinum surplus expected as auto demand cools', 'Russian platinum exports rise sharply'],
+  XPDUSD: ['EV adoption forecast weighs on palladium', 'Palladium surplus forecast for 2027'],
+  XCUUSD: ['LME copper inventories surge 12%', 'Weak China PMI drags base metals lower'],
+  XALUSD: ['Aluminium output rebounds as power returns', 'LME aluminium stocks jump on deliveries'],
+  XNIUSD: ['Nickel surplus widens as new capacity starts', 'Stainless steel demand slows sharply'],
+  XZNUSD: ['Zinc stocks build on LME warehouses', 'Construction slowdown weighs on zinc'],
+  XPBUSD: ['Lead demand softens as battery orders slip', 'LME lead inventories rise for a fifth day'],
+  NAS100: ['Tech selloff deepens as bond yields jump', 'Rotation out of growth stocks drags NAS100'],
 };
-const SHOCK_LINES: Record<string, string> = {
-  NVRA: 'Trading halt: Novara drops 9% on accounting review',
-  QBTX: 'Qubitron plunges after key customer cancels contract',
-  HELX: 'Flash crash: Helix Robotics halted after 8% drop',
-  XAGUSD: 'Silver flash crash: liquidity vanishes in Asian session',
-};
+// Single stocks are real listed names on a SIMULATED tape: headlines describe
+// order flow on this venue only, never company fundamentals.
+const STOCK_UP = ['Heavy buy-side block prints in {s}', '{s} squeezes higher as shorts cover', 'Call volume spikes in {s}', 'Bid stack builds in {s} on the desk'];
+const STOCK_DOWN = ['Large sell imbalance hits {s}', '{s} slides as funds de-risk', 'Put volume spikes in {s}', 'Offers stack up in {s} on the desk'];
+const SHOCK_LINE = (s: SymbolDef) =>
+  s.cls === 'nasdaq' ? `Volatility halt: ${s.name} gaps lower on a sell sweep` : `${s.name} flash crash: liquidity vanishes`;
 const MACRO_UP = ['US CPI 2.9% y/y vs 3.1% expected', 'FOMC holds; Chair signals cuts ahead', 'US Non-Farm Payrolls +92k vs +180k expected', 'ECB and Fed coordinate liquidity support'];
 const MACRO_DOWN = ['US CPI 3.6% y/y vs 3.2% expected', 'FOMC hikes 25bp in surprise move', 'US 10Y Treasury yield breaks 5.20%', 'US core PCE accelerates to 3.4%'];
 const MACRO_TEASE = ['US CPI release', 'FOMC rate decision', 'US Non-Farm Payrolls', 'US Core PCE release'];
-const SHOCK_TARGETS = Object.keys(SHOCK_LINES);
+const SHOCK_TARGETS = ['NVDA', 'TSLA', 'AMD', 'NFLX', 'XAGUSD', 'XPDUSD', 'XNIUSD'];
+
+/** Weighted pool of instruments that carry their own headlines (crosses inherit from legs). */
+const NEWS_POOL: SymbolDef[] = SYMBOLS.flatMap((s) => Array.from({ length: Math.round((s.newsWeight ?? 1) * 2) }, () => s));
+
+function lineFor(sym: SymbolDef, dir: 1 | -1, r: number): string {
+  const own = (dir > 0 ? UP_LINES : DOWN_LINES)[sym.id];
+  if (own) return pick(own, r);
+  return pick(dir > 0 ? STOCK_UP : STOCK_DOWN, r).replace('{s}', sym.name);
+}
 
 const newsMemo = new Map<number, NewsEvent | null>();
 const pick = <T,>(arr: T[], r: number): T => arr[Math.floor(r * arr.length) % arr.length];
@@ -120,13 +146,13 @@ export function newsForSlot(slot: number): NewsEvent | null {
     const r2 = rand(s, slot, 3);
     const r3 = rand(s, slot, 4);
     const t0 = slot * NEWS_SLOT + Math.floor(rand(s, slot, 5) * (NEWS_SLOT - 10));
-    const open = SYMBOLS.filter((x) => isOpen(x, t0));
+    const open = NEWS_POOL.filter((x) => isOpen(x, t0));
     const fxOpen = isOpen(FX_PROBE, t0);
     if (r1 < 0.035) {
       const targets = SHOCK_TARGETS.filter((id) => isOpen(SYMBOL_MAP[id], t0));
       if (targets.length) {
         const id = pick(targets, r2);
-        ev = { id: slot, t0, kind: 'shock', symbol: id, dir: -1, mag: SYMBOL_MAP[id].newsMag * 2.4, ramp: 8, tau: 1400, headline: SHOCK_LINES[id], teaser: `Desk chatter: heavy sell flow in ${SYMBOL_MAP[id].name}`, leadTime: RUMOR_LEAD };
+        ev = { id: slot, t0, kind: 'shock', symbol: id, dir: -1, mag: SYMBOL_MAP[id].newsMag * 2.4, ramp: 8, tau: 1400, headline: SHOCK_LINE(SYMBOL_MAP[id]), teaser: `Desk chatter: heavy sell flow in ${SYMBOL_MAP[id].name}`, leadTime: RUMOR_LEAD };
       }
     } else if (r1 < 0.22 && fxOpen) {
       // scheduled macro data only during the FX week
@@ -144,7 +170,7 @@ export function newsForSlot(slot: number): NewsEvent | null {
         mag: sym.newsMag * (0.45 + r3 * 0.9),
         ramp: 6 + rand(s, slot, 8) * 22,
         tau: 200 + rand(s, slot, 9) * 700,
-        headline: pick(dir > 0 ? UP_LINES[sym.id] : DOWN_LINES[sym.id], rand(s, slot, 10)),
+        headline: lineFor(sym, dir, rand(s, slot, 10)),
         teaser: `Desk chatter: unusual flow in ${sym.name}`,
         leadTime: RUMOR_LEAD,
       };
@@ -184,6 +210,11 @@ function newsEffect(sym: SymbolDef, t: number): number {
 export function midPrice(symId: string, t: number): number {
   const sym = SYMBOL_MAP[symId];
   const te = effectiveTime(sym, t);
+  if (sym.derive) {
+    const a = midPrice(sym.derive.a, te);
+    const b = midPrice(sym.derive.b, te);
+    return sym.derive.op === 'mul' ? a * b : a / b;
+  }
   return sym.base * Math.exp(fbm(sym, te) + newsEffect(sym, te));
 }
 
@@ -193,7 +224,7 @@ export function spreadAt(symId: string, t: number): number {
   const slot = Math.floor(t / NEWS_SLOT);
   for (let s = slot - 1; s <= slot; s++) {
     const ev = newsForSlot(s);
-    if (!ev || (ev.symbol !== null && ev.symbol !== symId)) continue;
+    if (!ev || (ev.symbol !== null && ev.symbol !== symId && ev.symbol !== sym.derive?.a && ev.symbol !== sym.derive?.b)) continue;
     const dt = t - ev.t0;
     if (dt > -3 && dt < 20) return sym.spread * 4;
   }
@@ -201,6 +232,7 @@ export function spreadAt(symId: string, t: number): number {
 }
 
 export interface Quote {
+  t: number;
   bid: number;
   ask: number;
   mid: number;
@@ -213,7 +245,7 @@ export function quote(symId: string, t: number): Quote {
   const open = isOpen(sym, t);
   const mid = midPrice(symId, t);
   const spread = open ? spreadAt(symId, t) : sym.spread;
-  return { mid, spread, bid: mid - spread / 2, ask: mid + spread / 2, open };
+  return { t, mid, spread, bid: mid - spread / 2, ask: mid + spread / 2, open };
 }
 
 /** News that has hit (t0 <= t), newest first. */
@@ -249,14 +281,28 @@ export interface Candle {
   high: number;
   low: number;
   close: number;
+  /** Synthetic tick volume (deterministic, scales with range and activity). */
+  volume: number;
 }
 
 export const TIMEFRAMES = [
   { id: 'M1', sec: 60 },
   { id: 'M5', sec: 300 },
   { id: 'M15', sec: 900 },
+  { id: 'M30', sec: 1800 },
   { id: 'H1', sec: 3600 },
+  { id: 'H4', sec: 14400 },
+  { id: 'D1', sec: 86400 },
 ] as const;
+export type TfId = (typeof TIMEFRAMES)[number]['id'];
+
+function tickVolume(symId: string, tfSec: number, start: number, high: number, low: number, mid: number, frac = 1): number {
+  const sym = SYMBOL_MAP[symId];
+  const expected = mid * sym.vol1m * Math.sqrt(tfSec / 60) * 2.2;
+  const activity = 0.55 + rand(strSeed(symId) ^ tfSec, Math.floor(start / 60), 77) * 0.9;
+  const perMin = 38 * activity * (0.6 + Math.min(4, (high - low) / (expected || 1)));
+  return Math.max(1, Math.round(perMin * (tfSec / 60) * frac));
+}
 
 export function bucketOpen(sym: SymbolDef, start: number, tfSec: number): boolean {
   return isOpen(sym, start) || isOpen(sym, start + tfSec - 1);
@@ -275,7 +321,8 @@ export function buildCandle(symId: string, tfSec: number, start: number, end?: n
     if (p < low) low = p;
     close = p;
   }
-  return { time: start, open, high, low, close };
+  const frac = Math.min(1, Math.max(0.02, (stop - start) / tfSec));
+  return { time: start, open, high, low, close, volume: tickVolume(symId, tfSec, start, high, low, open, frac) };
 }
 
 const candleCache = new Map<string, Map<number, Candle>>();
@@ -304,4 +351,52 @@ export function candles(symId: string, tfSec: number, count: number, now: number
   }
   if (cache.size > count * 3) for (const k of cache.keys()) if (k < start) cache.delete(k);
   return out.reverse();
+}
+
+// ---------------------------------------------------------------------------
+// Currency conversion into the EUR account, at the live (deterministic) rate.
+// ---------------------------------------------------------------------------
+
+const USD_LEG: Record<Ccy, { sym: string; inv: boolean } | null> = {
+  USD: null,
+  EUR: { sym: 'EURUSD', inv: false },
+  GBP: { sym: 'GBPUSD', inv: false },
+  AUD: { sym: 'AUDUSD', inv: false },
+  NZD: { sym: 'NZDUSD', inv: false },
+  JPY: { sym: 'USDJPY', inv: true },
+  CHF: { sym: 'USDCHF', inv: true },
+  CAD: { sym: 'USDCAD', inv: true },
+};
+const rateMemo = new Map<string, number>();
+
+/** How many USD one unit of `ccy` buys at time t. */
+function usdPer(ccy: Ccy, t: number): number {
+  const leg = USD_LEG[ccy];
+  if (!leg) return 1;
+  const sec = Math.floor(t);
+  const key = `${ccy}${sec}`;
+  let v = rateMemo.get(key);
+  if (v === undefined) {
+    if (rateMemo.size > 4000) rateMemo.clear();
+    const px = midPrice(leg.sym, sec);
+    v = leg.inv ? 1 / px : px;
+    rateMemo.set(key, v);
+  }
+  return v;
+}
+
+/** Convert an amount in `ccy` into account currency (EUR) at time t. */
+export function toAccount(amount: number, ccy: Ccy, t: number): number {
+  if (ccy === ACCOUNT_CCY) return amount;
+  return (amount * usdPer(ccy, t)) / usdPer(ACCOUNT_CCY, t);
+}
+
+/** P&L in account currency for a price difference (in quote units). */
+export function pnlFor(sym: SymbolDef, diff: number, lots: number, t: number): number {
+  return toAccount(diff * lots * sym.contract, sym.quoteCcy, t);
+}
+
+/** Notional value in account currency. */
+export function notional(sym: SymbolDef, lots: number, price: number, t: number): number {
+  return toAccount(lots * sym.contract * price, sym.quoteCcy, t);
 }

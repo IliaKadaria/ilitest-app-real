@@ -1,7 +1,7 @@
 // Measures realized volatility, € per minute per 0.01 lot, and news frequency.
 // Usage: npm run calibrate [-- <unix seconds>]   (defaults to last Wednesday 12:00 UTC)
-import { midPrice, recentNews } from '../src/market/engine.ts';
-import { SYMBOLS, isOpen, pnlFor, notional } from '../src/market/symbols.ts';
+import { midPrice, notional, pnlFor, recentNews } from '../src/market/engine.ts';
+import { SYMBOLS, isOpen } from '../src/market/symbols.ts';
 
 const arg = Number(process.argv[2]);
 const d = new Date();
@@ -18,8 +18,8 @@ for (const s of SYMBOLS) {
   }
   const med = [...rets].map(Math.abs).sort((x, y) => x - y)[rets.length >> 1] * 1.4826;
   const px = midPrice(s.id, at);
-  const eurPerMin = Math.abs(pnlFor(s, med * px, 0.01, px));
-  const margin = notional(s, 0.01, px) / s.leverage;
+  const eurPerMin = Math.abs(pnlFor(s, med * px, 0.01, at));
+  const margin = notional(s, 0.01, px, at) / s.leverage;
   console.log(`${s.id.padEnd(7)} px ${px.toFixed(s.digits).padStart(10)}  target ${(s.vol1m * 100).toFixed(3)}%  robust ${(med * 100).toFixed(3)}%  0.01 lot: €${eurPerMin.toFixed(2)}/min, margin €${margin.toFixed(2)}`);
 }
 console.log('news last hour:', recentNews(at, 3600).length);
