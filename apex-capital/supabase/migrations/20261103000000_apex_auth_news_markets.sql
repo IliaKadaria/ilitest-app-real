@@ -27,9 +27,8 @@ begin
     select 1 from auth.users u join public.admin_emails a on a.email = lower(u.email)
     where u.id = p_user and u.email_confirmed_at is not null
   ) into v_admin;
-  if v_admin then
-    update public.players set is_admin = true where id = p_player and not is_admin;
-  end if;
+  -- both ways: only verified e-mails in admin_emails stay admin
+  update public.players set is_admin = v_admin where id = p_player and is_admin is distinct from v_admin;
   return coalesce((select is_admin from public.players where id = p_player), false);
 end;
 $$;

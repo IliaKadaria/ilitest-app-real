@@ -48,10 +48,10 @@ create table if not exists public.competition_loans (
 );
 alter table public.competition_loans enable row level security;
 
-create or replace function public.comp_stack(p_mode text) returns numeric language sql immutable as $$
+create or replace function public.comp_stack(p_mode text) returns numeric language sql immutable set search_path = public as $$
   select case p_mode when 'whale' then 10000 when 'roulette' then 10000 when 'scoop' then 25000 else 100000 end::numeric;
 $$;
-create or replace function public.comp_minutes(p_mode text) returns int language sql immutable as $$
+create or replace function public.comp_minutes(p_mode text) returns int language sql immutable set search_path = public as $$
   select case p_mode when 'whale' then 60 when 'roulette' then 60 when 'scoop' then 45 else 20 end;
 $$;
 
