@@ -12,41 +12,127 @@ const WORLD_SEED = strSeed('apex-capital-world-v1');
 const OCTAVES = 20; // periods 2s .. ~12 days
 const CAL = 0.42; // calibrated so 1m std ≈ vol1m (see scripts/calibrate.ts)
 
+// ---------------------------------------------------------------------------
+// Market personality: every instrument trades with its own character, so no
+// two charts share a pattern.
+//   hurst   < 0.5 mean-reverting (FX chop), > 0.5 trending (single stocks)
+//   jump    size of sudden repricings (gaps, squeezes) in 1-minute vols
+//   cluster how strongly volatility bunches up (calm → violent regimes)
+//   micro   bid/ask bounce at tick level (relative to half the spread)
+//   session intraday activity curve (London / New York / Asia / US cash hours)
+// ---------------------------------------------------------------------------
+
+interface Personality {
+  hurst: number;
+  jump: number;
+  cluster: number;
+  micro: number;
+  /** [hour UTC, width h, extra activity] bumps on a 0.55 base. */
+  session: [number, number, number][];
+}
+
+const FX_SESSION: Personality['session'] = [[8, 1.6, 0.9], [14.5, 2, 1.2], [1.5, 2.5, 0.25]];
+const US_CASH: Personality['session'] = [[14, 0.8, 1.6], [17, 2.5, 0.7], [19.8, 0.5, 1.1]];
+const EU_CASH: Personality['session'] = [[7.5, 0.8, 1.5], [11, 2.5, 0.5], [14.5, 1, 0.9]];
+const ASIA_CASH: Personality['session'] = [[0.5, 0.8, 1.5], [3.5, 2, 0.6], [6, 0.6, 0.6]];
+const AGRI_PIT: Personality['session'] = [[13.8, 0.6, 2.2], [16, 1.5, 0.9], [18.1, 0.4, 1.4]];
+const ENERGY: Personality['session'] = [[13.5, 1.5, 1.4], [14.5, 0.4, 1.6], [8, 1.5, 0.5]];
+
+const EU_IDX = new Set(['GER40', 'FRA40', 'EU50', 'ESP35', 'ITA40', 'NED25', 'SUI20', 'UK100']);
+const ASIA_IDX = new Set(['JPN225', 'AUS200', 'CHINA50']);
+const AGRI = new Set(['CORN', 'WHEAT', 'SOYBEAN', 'COFFEE', 'SUGAR', 'COCOA']);
+const ENERGY_IDS = new Set(['USOIL', 'UKOIL', 'NGAS']);
+
+function personalityOf(s: SymbolDef, seed: number): Personality {
+  const j = (k: number) => rand(seed, 991, k) * 2 - 1; // per-symbol jitter
+  let p: Personality;
+  if (s.cls === 'fx') p = { hurst: 0.42, jump: 0.35, cluster: 0.8, micro: 0.25, session: FX_SESSION };
+  else if (s.cls === 'nasdaq') p = { hurst: 0.6, jump: 2.4, cluster: 1.25, micro: 0.7, session: US_CASH };
+  else if (s.cls === 'indices') p = { hurst: 0.56, jump: 1.1, cluster: 1.1, micro: 0.45, session: EU_IDX.has(s.id) ? EU_CASH : ASIA_IDX.has(s.id) ? ASIA_CASH : US_CASH };
+  else if (AGRI.has(s.id)) p = { hurst: 0.5, jump: 1.8, cluster: 0.9, micro: 0.6, session: AGRI_PIT };
+  else if (ENERGY_IDS.has(s.id)) p = { hurst: 0.54, jump: 1.5, cluster: 1.15, micro: 0.5, session: ENERGY };
+  else p = { hurst: 0.5, jump: 0.8, cluster: 1, micro: 0.4, session: [[8, 1.5, 0.6], [14, 1.8, 1.2], [2, 2.5, 0.3]] };
+  if (s.id === 'VIX') p = { ...p, hurst: 0.38, jump: 3.2, cluster: 1.4 };
+  return {
+    ...p,
+    hurst: Math.max(0.3, Math.min(0.72, (s.hurst ?? p.hurst) + j(1) * 0.03)),
+    jump: (s.jump ?? p.jump) * (0.8 + 0.4 * rand(seed, 991, 2)),
+    cluster: p.cluster * (0.85 + 0.3 * rand(seed, 991, 3)),
+    session: p.session.map(([h, w, a]) => [h + j(4) * 0.3, w, a] as [number, number, number]),
+  };
+}
+
 interface SymState {
   key: string;
   seed: number;
   amps: number[];
   periods: number[];
+  pers: Personality;
+  /** Jump amplitudes (log units) at 15 min / 1 h / 6 h. */
+  jumps: number[];
+  /** Tick-level bounce amplitude (log units). */
+  micro: number;
 }
+const JUMP_PERIODS = [900, 3600, 21600];
 const symState: Record<string, SymState> = {};
 function stateOf(s: SymbolDef): SymState {
   const hit = symState[s.id];
   if (hit && hit.key === `${s.base}:${s.vol1m}`) return hit;
   const seed = strSeed(s.id) ^ WORLD_SEED;
+  const pers = personalityOf(s, seed);
   const sigmaSec = s.vol1m / Math.sqrt(60);
   const periods: number[] = [];
   const amps: number[] = [];
   for (let k = 0; k < OCTAVES; k++) {
     const p = 2 * Math.pow(2, k);
     periods.push(p);
-    amps.push(sigmaSec * Math.sqrt(p) * CAL);
+    // H = 0.5 is a plain random walk; the exponent bends long horizons into trends or chop
+    amps.push(sigmaSec * Math.sqrt(p) * CAL * Math.pow(p / 60, pers.hurst - 0.5));
   }
-  return (symState[s.id] = { seed, amps, periods, key: `${s.base}:${s.vol1m}` });
+  const jumps = JUMP_PERIODS.map((_, i) => s.vol1m * pers.jump * [0.9, 0.7, 0.55][i]);
+  const micro = s.base > 0 ? (pers.micro * s.spread) / 2 / s.base : 0;
+  return (symState[s.id] = { seed, amps, periods, key: `${s.base}:${s.vol1m}`, pers, jumps, micro });
 }
 
-function volRegime(seed: number, t: number): number {
-  const n = noise1(seed ^ 0x9e3779b9, t / 1800) * 0.6 + noise1(seed ^ 0x7f4a7c15, t / 300) * 0.4;
-  return 0.55 + 1.2 * Math.abs(n);
+/** Intraday activity multiplier (mean ≈ 1). */
+function sessionActivity(p: Personality, t: number): number {
+  const h = (t % 86400) / 3600;
+  let v = 0.55;
+  for (const [c, w, a] of p.session) {
+    const d = Math.min(Math.abs(h - c), 24 - Math.abs(h - c));
+    v += a * Math.exp(-(d * d) / (2 * w * w));
+  }
+  return v / 1.15;
+}
+
+function volRegime(st: SymState, t: number): number {
+  const n = noise1(st.seed ^ 0x9e3779b9, t / 1800) * 0.6 + noise1(st.seed ^ 0x7f4a7c15, t / 300) * 0.4;
+  return (0.55 + 1.2 * Math.pow(Math.abs(n), 1 / st.pers.cluster)) * sessionActivity(st.pers, t);
+}
+
+/** Value noise whose transitions are squeezed into the last `w` of each cell: a step. */
+function stepNoise(seed: number, x: number, w: number): number {
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = rand(seed, i | 0, 3) * 2 - 1;
+  if (f < 1 - w) return a;
+  const b = rand(seed, (i + 1) | 0, 3) * 2 - 1;
+  const u = (f - (1 - w)) / w;
+  return a + (b - a) * u * u * (3 - 2 * u);
 }
 
 function fbm(sym: SymbolDef, t: number): number {
   const st = stateOf(sym);
-  const vr = volRegime(st.seed, t);
+  const vr = volRegime(st, t);
   let v = 0;
   for (let k = 0; k < OCTAVES; k++) {
     const p = st.periods[k];
     v += st.amps[k] * (p < 3600 ? vr : 1) * noise1(st.seed + k * 7919, t / p);
   }
+  // sudden repricings: only some cells actually jump (fat tails, not constant drift)
+  for (let k = 0; k < JUMP_PERIODS.length; k++) v += st.jumps[k] * stepNoise(st.seed ^ (0x5bd1e995 + k), t / JUMP_PERIODS[k], 0.035);
+  // tick-level bid/ask bounce
+  if (st.micro) v += st.micro * noise1(st.seed ^ 0x27d4eb2f, t / 0.7);
   return v;
 }
 
@@ -145,9 +231,13 @@ const SHOCK_TARGETS = ['NVDA', 'TSLA', 'AMD', 'NFLX', 'XAGUSD', 'XPDUSD', 'XNIUS
 /** Weighted pool of instruments that carry their own headlines (crosses inherit from legs). */
 const NEWS_POOL: SymbolDef[] = SYMBOLS.flatMap((s) => Array.from({ length: Math.round((s.newsWeight ?? 1) * 2) }, () => s));
 
+const INDEX_UP = ['{s} futures climb as earnings season beats', 'Dip buyers step in; {s} reclaims session high', 'Short covering lifts {s} into the close', 'Bond yields ease; {s} extends gains'];
+const INDEX_DOWN = ['{s} slides as risk appetite fades', 'Profit-taking drags {s} off the highs', 'Hawkish central-bank remarks weigh on {s}', 'Heavy futures selling hits {s}'];
+
 function lineFor(sym: SymbolDef, dir: 1 | -1, r: number): string {
   const own = (dir > 0 ? UP_LINES : DOWN_LINES)[sym.id];
   if (own) return pick(own, r);
+  if (sym.cls === 'indices') return pick(dir > 0 ? INDEX_UP : INDEX_DOWN, r).replace('{s}', sym.name);
   return pick(dir > 0 ? STOCK_UP : STOCK_DOWN, r).replace('{s}', sym.name);
 }
 
@@ -166,8 +256,13 @@ export function newsForSlot(slot: number): NewsEvent | null {
     const r2 = rand(s, slot, 3);
     const r3 = rand(s, slot, 4);
     const t0 = slot * NEWS_SLOT + Math.floor(rand(s, slot, 5) * (NEWS_SLOT - 10));
-    const open = NEWS_POOL.filter((x) => isOpen(x, t0));
     const fxOpen = isOpen(FX_PROBE, t0);
+    // a few deterministic draws from the pool until one is trading (cheap: no full scan)
+    let pickOpen: SymbolDef | null = null;
+    for (let k = 0; k < 8 && !pickOpen; k++) {
+      const c = NEWS_POOL[Math.floor(rand(s, slot, 40 + k) * NEWS_POOL.length) % NEWS_POOL.length];
+      if (c.session === 'always' || (c.session === 'fx' ? fxOpen : isOpen(c, t0))) pickOpen = c;
+    }
     if (r1 < 0.035) {
       const targets = SHOCK_TARGETS.filter((id) => isOpen(SYMBOL_MAP[id], t0));
       if (targets.length) {
@@ -178,8 +273,8 @@ export function newsForSlot(slot: number): NewsEvent | null {
       // scheduled macro data only during the FX week
       const dir: 1 | -1 = r2 < 0.5 ? 1 : -1;
       ev = { id: slot, t0, kind: 'macro', symbol: null, dir, mag: 1, ramp: 5, tau: 700, headline: pick(dir > 0 ? MACRO_UP : MACRO_DOWN, r3), teaser: pick(MACRO_TEASE, rand(s, slot, 6)), leadTime: MACRO_LEAD };
-    } else if (open.length) {
-      const sym = pick(open, r2);
+    } else if (pickOpen) {
+      const sym = pickOpen;
       const dir: 1 | -1 = rand(s, slot, 7) < 0.52 ? 1 : -1;
       ev = {
         id: slot,
@@ -226,16 +321,21 @@ function newsEffect(sym: SymbolDef, t: number): number {
   return v;
 }
 
-/** Mid price at unix time t (frozen at the last close while the market is shut). */
-export function midPrice(symId: string, t: number): number {
+/**
+ * Mid price at unix time t (frozen at the last close while the market is shut).
+ * `coarse` skips the news transients (minutes long): used only to build closed
+ * 4h / daily / weekly bars, where they are invisible but cost the most.
+ */
+export function midPrice(symId: string, t: number, coarse = false): number {
   const sym = SYMBOL_MAP[symId];
   const te = effectiveTime(sym, t);
   if (sym.derive) {
-    const a = midPrice(sym.derive.a, te);
-    const b = midPrice(sym.derive.b, te);
+    const a = midPrice(sym.derive.a, te, coarse);
+    const b = midPrice(sym.derive.b, te, coarse);
     return sym.derive.op === 'mul' ? a * b : a / b;
   }
-  return sym.base * Math.exp(fbm(sym, te) + newsEffect(sym, te));
+  const p = sym.base * Math.exp(fbm(sym, te) + (coarse ? 0 : newsEffect(sym, te)));
+  return sym.tick ? Math.max(sym.tick, Math.round(p / sym.tick) * sym.tick) : p;
 }
 
 /** Spread widens 4x for 20s around news on that instrument. */
@@ -306,20 +406,35 @@ export interface Candle {
 }
 
 export const TIMEFRAMES = [
-  { id: 'M1', sec: 60 },
-  { id: 'M5', sec: 300 },
-  { id: 'M15', sec: 900 },
-  { id: 'M30', sec: 1800 },
-  { id: 'H1', sec: 3600 },
-  { id: 'H4', sec: 14400 },
-  { id: 'D1', sec: 86400 },
+  { id: '1s', sec: 1, name: '1 second' },
+  { id: '5s', sec: 5, name: '5 seconds' },
+  { id: '10s', sec: 10, name: '10 seconds' },
+  { id: '15s', sec: 15, name: '15 seconds' },
+  { id: '30s', sec: 30, name: '30 seconds' },
+  { id: '1m', sec: 60, name: '1 minute' },
+  { id: '5m', sec: 300, name: '5 minutes' },
+  { id: '15m', sec: 900, name: '15 minutes' },
+  { id: '30m', sec: 1800, name: '30 minutes' },
+  { id: '1h', sec: 3600, name: '1 hour' },
+  { id: '4h', sec: 14400, name: '4 hours' },
+  { id: '1D', sec: 86400, name: '1 day' },
+  { id: '1W', sec: 604800, name: '1 week' },
 ] as const;
 export type TfId = (typeof TIMEFRAMES)[number]['id'];
+
+const WEEK = 604800;
+/** Weekly bars start Monday 00:00 UTC (the epoch was a Thursday). */
+const WEEK_OFFSET = 4 * 86400;
+/** Start of the bar containing t. */
+export function bucketStart(t: number, tfSec: number): number {
+  if (tfSec === WEEK) return Math.floor((t - WEEK_OFFSET) / WEEK) * WEEK + WEEK_OFFSET;
+  return Math.floor(t / tfSec) * tfSec;
+}
 
 function tickVolume(symId: string, tfSec: number, start: number, high: number, low: number, mid: number, frac = 1): number {
   const sym = SYMBOL_MAP[symId];
   const expected = mid * sym.vol1m * Math.sqrt(tfSec / 60) * 2.2;
-  const activity = 0.55 + rand(strSeed(symId) ^ tfSec, Math.floor(start / 60), 77) * 0.9;
+  const activity = (0.55 + rand(strSeed(symId) ^ tfSec, Math.floor(start / 60), 77) * 0.9) * (sym.base > 0 ? sessionActivity(stateOf(sym).pers, start) : 1);
   const perMin = 38 * activity * (0.6 + Math.min(4, (high - low) / (expected || 1)));
   return Math.max(1, Math.round(perMin * (tfSec / 60) * frac));
 }
@@ -328,15 +443,22 @@ export function bucketOpen(sym: SymbolDef, start: number, tfSec: number): boolea
   return isOpen(sym, start) || isOpen(sym, start + tfSec - 1);
 }
 
+/** Price samples per bar: dense for second bars, capped for daily / weekly. */
+function sampleStep(tfSec: number): number {
+  if (tfSec < 60) return Math.max(0.25, tfSec / 60);
+  return tfSec < 14400 ? tfSec / 60 : tfSec / 48;
+}
+
 export function buildCandle(symId: string, tfSec: number, start: number, end?: number): Candle {
-  const step = Math.max(1, tfSec / 60);
+  const step = sampleStep(tfSec);
   const stop = end ?? start + tfSec;
-  const open = midPrice(symId, start);
+  const coarse = end === undefined && tfSec >= 14400;
+  const open = midPrice(symId, start, coarse);
   let high = open;
   let low = open;
   let close = open;
   for (let t = start + step; t <= stop; t += step) {
-    const p = midPrice(symId, Math.min(t, stop));
+    const p = midPrice(symId, Math.min(t, stop), coarse);
     if (p > high) high = p;
     if (p < low) low = p;
     close = p;
@@ -356,7 +478,7 @@ export function candles(symId: string, tfSec: number, count: number, now: number
     cache = new Map();
     candleCache.set(key, cache);
   }
-  const cur = Math.floor(now / tfSec) * tfSec;
+  const cur = bucketStart(now, tfSec);
   const out: Candle[] = [];
   if (isOpen(sym, now)) out.push(buildCandle(symId, tfSec, cur, now));
   let start = cur - tfSec;
@@ -371,6 +493,13 @@ export function candles(symId: string, tfSec: number, count: number, now: number
   }
   if (cache.size > count * 3) for (const k of cache.keys()) if (k < start) cache.delete(k);
   return out.reverse();
+}
+
+/** Bullish (1) when price is above where it was 20 bars ago on this timeframe. */
+export function trendOf(symId: string, tfSec: number, now: number): 1 | -1 {
+  const cs = candles(symId, tfSec, 21, now);
+  if (cs.length < 2) return 1;
+  return cs[cs.length - 1].close >= cs[0].close ? 1 : -1;
 }
 
 // ---------------------------------------------------------------------------

@@ -76,7 +76,6 @@ interface Backend {
   vote(mid: string, option: number): Promise<void>;
   remove(mid: string): Promise<void>;
   ban(cid: string, playerId: string): Promise<void>;
-  setDemoAdmin?(on: boolean): void;
   onChange(cb: (what: 'all' | { room: string }) => void): void;
 }
 
@@ -85,7 +84,7 @@ class RuleError extends Error {}
 // ============================================================ local backend
 
 const LOCAL_KEY = 'apex.comms.v1';
-const DEMO_ADMIN_KEY = 'apex.demoAdmin';
+const AUTH_KEY = 'apex.auth.v1';
 const HOUSE = 'house';
 
 interface LocalDb {
@@ -157,7 +156,13 @@ class LocalBackend implements Backend {
     this.cb?.('all');
   }
   private isAdmin() {
-    return getItem(DEMO_ADMIN_KEY) === '1';
+    // Offline there is no server to ask: only an account the server verified as
+    // admin earlier (cached by auth) may run communities. No self-serve toggle.
+    try {
+      return !!(JSON.parse(getItem(AUTH_KEY) || 'null') as { isAdmin?: boolean } | null)?.isAdmin;
+    } catch {
+      return false;
+    }
   }
   private roomAdmin(db: LocalDb, cid: string) {
     return this.isAdmin() || db.members.some((m) => m.communityId === cid && m.playerId === this.me.id && m.role === 'admin' && !m.banned);
@@ -167,10 +172,6 @@ class LocalBackend implements Backend {
   }
   private sys(db: LocalDb, cid: string, body: string) {
     db.messages.push({ id: `m${++db.seq}`, communityId: cid, playerId: this.me.id, name: 'system', kind: 'system', body, payload: null, deleted: false, createdAt: Date.now() / 1000 });
-  }
-  setDemoAdmin(on: boolean) {
-    setItem(DEMO_ADMIN_KEY, on ? '1' : '0');
-    this.cb?.('all');
   }
   onChange(cb: (w: 'all' | { room: string }) => void) {
     this.cb = cb;
@@ -521,9 +522,6 @@ class Comms {
   /** Local demo only: impersonate an admin to try the admin tools. */
   get canToggleDemoAdmin() {
     return this.mode === 'local';
-  }
-  setDemoAdmin(on: boolean) {
-    this.backend?.setDemoAdmin?.(on);
   }
 }
 

@@ -1,4 +1,4 @@
-export type AssetClass = 'fx' | 'futures' | 'nasdaq';
+export type AssetClass = 'fx' | 'futures' | 'indices' | 'nasdaq';
 /** fx: Sun 22:00 → Fri 22:00 UTC. metal: same + daily 22:00–23:00 UTC break. always: 24/7. */
 export type Session = 'fx' | 'metal' | 'always';
 export type Ccy = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CHF' | 'AUD' | 'CAD' | 'NZD';
@@ -34,6 +34,11 @@ export interface SymbolDef {
   beta: number;
   /** Relative odds of being the subject of a headline. */
   newsWeight?: number;
+  /** Exchange tick size: prices move in these steps (futures, indices, stocks). */
+  tick?: number;
+  /** Market character (defaults by asset class, see engine.ts personality). */
+  hurst?: number;
+  jump?: number;
 }
 
 type FxRow = [id: string, desc: string, mono: string, base: number, vol1m: number, spread: number, quote: Ccy, beta: number, derive?: SymbolDef['derive']];
@@ -83,15 +88,15 @@ const FX: SymbolDef[] = fx([
 const metal = (s: Omit<SymbolDef, 'cls' | 'session' | 'leverage'> & { leverage?: number }): SymbolDef => ({ cls: 'futures', session: 'metal', leverage: 200, ...s });
 
 const FUTURES: SymbolDef[] = [
-  metal({ id: 'XAUUSD', name: 'XAU/USD', desc: 'Gold vs US Dollar', mono: 'Au', base: 2650, vol1m: 0.0005, spread: 0.22, contract: 100, digits: 2, quoteCcy: 'USD', newsMag: 0.006, beta: 0.9, newsWeight: 3 }),
-  metal({ id: 'XAGUSD', name: 'XAG/USD', desc: 'Silver vs US Dollar', mono: 'Ag', base: 31.2, vol1m: 0.0008, spread: 0.022, contract: 5000, digits: 3, quoteCcy: 'USD', newsMag: 0.009, beta: 1.0, newsWeight: 2 }),
-  metal({ id: 'XPTUSD', name: 'XPT/USD', desc: 'Platinum vs US Dollar', mono: 'Pt', base: 980, vol1m: 0.0008, spread: 0.9, contract: 100, digits: 2, quoteCcy: 'USD', newsMag: 0.009, beta: 1.0 }),
-  metal({ id: 'XPDUSD', name: 'XPD/USD', desc: 'Palladium vs US Dollar', mono: 'Pd', base: 1020, vol1m: 0.0011, spread: 1.6, contract: 100, digits: 2, quoteCcy: 'USD', newsMag: 0.012, beta: 1.1 }),
-  metal({ id: 'XCUUSD', name: 'COPPER', desc: 'Copper vs US Dollar (per lb)', mono: 'Cu', base: 4.45, vol1m: 0.0006, spread: 0.004, contract: 10000, digits: 4, quoteCcy: 'USD', newsMag: 0.008, beta: 1.2, leverage: 100 }),
-  metal({ id: 'XALUSD', name: 'ALUMINIUM', desc: 'Aluminium vs US Dollar (per t)', mono: 'Al', base: 2550, vol1m: 0.0005, spread: 2.5, contract: 10, digits: 1, quoteCcy: 'USD', newsMag: 0.007, beta: 1.0, leverage: 100 }),
-  metal({ id: 'XNIUSD', name: 'NICKEL', desc: 'Nickel vs US Dollar (per t)', mono: 'Ni', base: 16200, vol1m: 0.0008, spread: 22, contract: 1, digits: 0, quoteCcy: 'USD', newsMag: 0.01, beta: 1.1, leverage: 100 }),
-  metal({ id: 'XZNUSD', name: 'ZINC', desc: 'Zinc vs US Dollar (per t)', mono: 'Zn', base: 2850, vol1m: 0.0006, spread: 3, contract: 10, digits: 1, quoteCcy: 'USD', newsMag: 0.008, beta: 1.0, leverage: 100 }),
-  metal({ id: 'XPBUSD', name: 'LEAD', desc: 'Lead vs US Dollar (per t)', mono: 'Pb', base: 2050, vol1m: 0.0005, spread: 2.5, contract: 10, digits: 1, quoteCcy: 'USD', newsMag: 0.007, beta: 0.9, leverage: 100 }),
+  metal({ tick: 0.01, id: 'XAUUSD', name: 'XAU/USD', desc: 'Gold vs US Dollar', mono: 'Au', base: 2650, vol1m: 0.0005, spread: 0.22, contract: 100, digits: 2, quoteCcy: 'USD', newsMag: 0.006, beta: 0.9, newsWeight: 3 }),
+  metal({ tick: 0.005, id: 'XAGUSD', name: 'XAG/USD', desc: 'Silver vs US Dollar', mono: 'Ag', base: 31.2, vol1m: 0.0008, spread: 0.022, contract: 5000, digits: 3, quoteCcy: 'USD', newsMag: 0.009, beta: 1.0, newsWeight: 2 }),
+  metal({ tick: 0.1, id: 'XPTUSD', name: 'XPT/USD', desc: 'Platinum vs US Dollar', mono: 'Pt', base: 980, vol1m: 0.0008, spread: 0.9, contract: 100, digits: 2, quoteCcy: 'USD', newsMag: 0.009, beta: 1.0 }),
+  metal({ tick: 0.5, jump: 2, id: 'XPDUSD', name: 'XPD/USD', desc: 'Palladium vs US Dollar', mono: 'Pd', base: 1020, vol1m: 0.0011, spread: 1.6, contract: 100, digits: 2, quoteCcy: 'USD', newsMag: 0.012, beta: 1.1 }),
+  metal({ tick: 0.0005, id: 'XCUUSD', name: 'COPPER', desc: 'Copper vs US Dollar (per lb)', mono: 'Cu', base: 4.45, vol1m: 0.0006, spread: 0.004, contract: 10000, digits: 4, quoteCcy: 'USD', newsMag: 0.008, beta: 1.2, leverage: 100 }),
+  metal({ tick: 0.5, id: 'XALUSD', name: 'ALUMINIUM', desc: 'Aluminium vs US Dollar (per t)', mono: 'Al', base: 2550, vol1m: 0.0005, spread: 2.5, contract: 10, digits: 1, quoteCcy: 'USD', newsMag: 0.007, beta: 1.0, leverage: 100 }),
+  metal({ tick: 5, jump: 2.2, id: 'XNIUSD', name: 'NICKEL', desc: 'Nickel vs US Dollar (per t)', mono: 'Ni', base: 16200, vol1m: 0.0008, spread: 22, contract: 1, digits: 0, quoteCcy: 'USD', newsMag: 0.01, beta: 1.1, leverage: 100 }),
+  metal({ tick: 0.5, id: 'XZNUSD', name: 'ZINC', desc: 'Zinc vs US Dollar (per t)', mono: 'Zn', base: 2850, vol1m: 0.0006, spread: 3, contract: 10, digits: 1, quoteCcy: 'USD', newsMag: 0.008, beta: 1.0, leverage: 100 }),
+  metal({ tick: 0.5, id: 'XPBUSD', name: 'LEAD', desc: 'Lead vs US Dollar (per t)', mono: 'Pb', base: 2050, vol1m: 0.0005, spread: 2.5, contract: 10, digits: 1, quoteCcy: 'USD', newsMag: 0.007, beta: 0.9, leverage: 100 }),
   metal({ id: 'XAUEUR', name: 'XAU/EUR', desc: 'Gold vs Euro', mono: 'Au', base: 0, vol1m: 0, spread: 0.3, contract: 100, digits: 2, quoteCcy: 'EUR', newsMag: 0, beta: 0, derive: { a: 'XAUUSD', b: 'EURUSD', op: 'div' } }),
   metal({ id: 'XAUGBP', name: 'XAU/GBP', desc: 'Gold vs British Pound', mono: 'Au', base: 0, vol1m: 0, spread: 0.3, contract: 100, digits: 2, quoteCcy: 'GBP', newsMag: 0, beta: 0, derive: { a: 'XAUUSD', b: 'GBPUSD', op: 'div' } }),
   metal({ id: 'XAUJPY', name: 'XAU/JPY', desc: 'Gold vs Japanese Yen', mono: 'Au', base: 0, vol1m: 0, spread: 45, contract: 100, digits: 0, quoteCcy: 'JPY', newsMag: 0, beta: 0, derive: { a: 'XAUUSD', b: 'USDJPY', op: 'mul' } }),
@@ -100,15 +105,15 @@ const FUTURES: SymbolDef[] = [
   metal({ id: 'XAGEUR', name: 'XAG/EUR', desc: 'Silver vs Euro', mono: 'Ag', base: 0, vol1m: 0, spread: 0.03, contract: 5000, digits: 3, quoteCcy: 'EUR', newsMag: 0, beta: 0, derive: { a: 'XAGUSD', b: 'EURUSD', op: 'div' } }),
   metal({ id: 'XAGAUD', name: 'XAG/AUD', desc: 'Silver vs Australian Dollar', mono: 'Ag', base: 0, vol1m: 0, spread: 0.04, contract: 5000, digits: 3, quoteCcy: 'AUD', newsMag: 0, beta: 0, derive: { a: 'XAGUSD', b: 'AUDUSD', op: 'div' } }),
   // energy & agricultural futures (continuous front-month, simulated)
-  metal({ id: 'USOIL', name: 'USOIL', desc: 'WTI Crude Oil Futures', mono: 'CL', base: 71.5, vol1m: 0.0009, spread: 0.03, contract: 1000, digits: 2, quoteCcy: 'USD', newsMag: 0.01, beta: 0.8, leverage: 100, newsWeight: 3 }),
-  metal({ id: 'UKOIL', name: 'UKOIL', desc: 'Brent Crude Oil Futures', mono: 'BZ', base: 75.2, vol1m: 0.00085, spread: 0.03, contract: 1000, digits: 2, quoteCcy: 'USD', newsMag: 0.01, beta: 0.8, leverage: 100, newsWeight: 2 }),
-  metal({ id: 'NGAS', name: 'NATGAS', desc: 'Natural Gas Futures', mono: 'NG', base: 2.85, vol1m: 0.0016, spread: 0.006, contract: 10000, digits: 3, quoteCcy: 'USD', newsMag: 0.018, beta: 0.5, leverage: 50 }),
-  metal({ id: 'CORN', name: 'CORN', desc: 'Corn Futures (USD/bu)', mono: 'ZC', base: 4.25, vol1m: 0.0007, spread: 0.005, contract: 5000, digits: 3, quoteCcy: 'USD', newsMag: 0.008, beta: 0.3, leverage: 50 }),
-  metal({ id: 'WHEAT', name: 'WHEAT', desc: 'Wheat Futures (USD/bu)', mono: 'ZW', base: 5.65, vol1m: 0.0008, spread: 0.006, contract: 5000, digits: 3, quoteCcy: 'USD', newsMag: 0.009, beta: 0.3, leverage: 50 }),
-  metal({ id: 'SOYBEAN', name: 'SOYBEAN', desc: 'Soybean Futures (USD/bu)', mono: 'ZS', base: 10.2, vol1m: 0.0006, spread: 0.008, contract: 5000, digits: 3, quoteCcy: 'USD', newsMag: 0.008, beta: 0.3, leverage: 50 }),
-  metal({ id: 'COFFEE', name: 'COFFEE', desc: 'Arabica Coffee Futures (USD/lb)', mono: 'KC', base: 2.45, vol1m: 0.0011, spread: 0.004, contract: 37500, digits: 4, quoteCcy: 'USD', newsMag: 0.012, beta: 0.2, leverage: 50 }),
-  metal({ id: 'SUGAR', name: 'SUGAR', desc: 'Raw Sugar No.11 Futures (USD/lb)', mono: 'SB', base: 0.21, vol1m: 0.001, spread: 0.0003, contract: 112000, digits: 4, quoteCcy: 'USD', newsMag: 0.011, beta: 0.2, leverage: 50 }),
-  metal({ id: 'COCOA', name: 'COCOA', desc: 'Cocoa Futures (USD/t)', mono: 'CC', base: 7800, vol1m: 0.0013, spread: 8, contract: 10, digits: 0, quoteCcy: 'USD', newsMag: 0.014, beta: 0.2, leverage: 50 }),
+  metal({ tick: 0.01, id: 'USOIL', name: 'USOIL', desc: 'WTI Crude Oil Futures', mono: 'CL', base: 71.5, vol1m: 0.0009, spread: 0.03, contract: 1000, digits: 2, quoteCcy: 'USD', newsMag: 0.01, beta: 0.8, leverage: 100, newsWeight: 3 }),
+  metal({ tick: 0.01, id: 'UKOIL', name: 'UKOIL', desc: 'Brent Crude Oil Futures', mono: 'BZ', base: 75.2, vol1m: 0.00085, spread: 0.03, contract: 1000, digits: 2, quoteCcy: 'USD', newsMag: 0.01, beta: 0.8, leverage: 100, newsWeight: 2 }),
+  metal({ tick: 0.001, jump: 3, id: 'NGAS', name: 'NATGAS', desc: 'Natural Gas Futures', mono: 'NG', base: 2.85, vol1m: 0.0016, spread: 0.006, contract: 10000, digits: 3, quoteCcy: 'USD', newsMag: 0.018, beta: 0.5, leverage: 50 }),
+  metal({ tick: 0.0025, id: 'CORN', name: 'CORN', desc: 'Corn Futures (USD/bu)', mono: 'ZC', base: 4.25, vol1m: 0.0007, spread: 0.005, contract: 5000, digits: 4, quoteCcy: 'USD', newsMag: 0.008, beta: 0.3, leverage: 50 }),
+  metal({ tick: 0.0025, id: 'WHEAT', name: 'WHEAT', desc: 'Wheat Futures (USD/bu)', mono: 'ZW', base: 5.65, vol1m: 0.0008, spread: 0.006, contract: 5000, digits: 4, quoteCcy: 'USD', newsMag: 0.009, beta: 0.3, leverage: 50 }),
+  metal({ tick: 0.0025, id: 'SOYBEAN', name: 'SOYBEAN', desc: 'Soybean Futures (USD/bu)', mono: 'ZS', base: 10.2, vol1m: 0.0006, spread: 0.008, contract: 5000, digits: 4, quoteCcy: 'USD', newsMag: 0.008, beta: 0.3, leverage: 50 }),
+  metal({ tick: 0.0005, jump: 2.2, id: 'COFFEE', name: 'COFFEE', desc: 'Arabica Coffee Futures (USD/lb)', mono: 'KC', base: 2.45, vol1m: 0.0011, spread: 0.004, contract: 37500, digits: 4, quoteCcy: 'USD', newsMag: 0.012, beta: 0.2, leverage: 50 }),
+  metal({ tick: 0.0001, id: 'SUGAR', name: 'SUGAR', desc: 'Raw Sugar No.11 Futures (USD/lb)', mono: 'SB', base: 0.21, vol1m: 0.001, spread: 0.0003, contract: 112000, digits: 4, quoteCcy: 'USD', newsMag: 0.011, beta: 0.2, leverage: 50 }),
+  metal({ tick: 1, jump: 3, id: 'COCOA', name: 'COCOA', desc: 'Cocoa Futures (USD/t)', mono: 'CC', base: 7800, vol1m: 0.0013, spread: 8, contract: 10, digits: 0, quoteCcy: 'USD', newsMag: 0.014, beta: 0.2, leverage: 50 }),
 ];
 
 type StockRow = [id: string, desc: string, base: number, vol1m: number, beta: number];
@@ -130,10 +135,53 @@ const stocks = (rows: StockRow[]): SymbolDef[] =>
     newsMag: vol1m * 18,
     beta,
     newsWeight: 0.8,
+    tick: 0.01,
   }));
 
+type IdxRow = [id: string, desc: string, mono: string, base: number, vol1m: number, spread: number, ccy: Ccy, beta: number, tick: number, digits: number, weight?: number];
+const indices = (rows: IdxRow[]): SymbolDef[] =>
+  rows.map(([id, desc, mono, base, vol1m, spread, quoteCcy, beta, tick, digits, weight]) => ({
+    id,
+    name: id,
+    desc,
+    cls: 'indices',
+    session: 'metal',
+    mono,
+    base,
+    vol1m,
+    spread,
+    contract: 1,
+    digits,
+    leverage: 100,
+    quoteCcy,
+    newsMag: vol1m * 12,
+    beta,
+    newsWeight: weight ?? 1,
+    tick,
+  }));
+
+// Cash indices (CFDs on the index, simulated). Contract = 1 × index points.
+const INDICES: SymbolDef[] = indices([
+  ['NAS100', 'US Tech 100 Index', 'NQ', 24500, 0.0006, 1.2, 'USD', 1.0, 0.25, 2, 3],
+  ['US500', 'US 500 Index', 'ES', 6050, 0.00045, 0.5, 'USD', 0.9, 0.25, 2, 2.5],
+  ['US30', 'Wall Street 30 Index', 'YM', 44200, 0.0004, 2.4, 'USD', 0.8, 1, 0, 2],
+  ['US2000', 'US Small Cap 2000', 'RT', 2380, 0.0007, 0.4, 'USD', 1.2, 0.1, 1],
+  ['VIX', 'CBOE Volatility Index', 'VX', 16.4, 0.0025, 0.05, 'USD', -2.5, 0.05, 2, 1.5],
+  ['GER40', 'Germany 40 Index', 'DX', 19650, 0.00045, 1.2, 'EUR', 0.8, 0.5, 1, 2],
+  ['UK100', 'UK 100 Index', 'UK', 8320, 0.0004, 1.0, 'GBP', 0.6, 0.5, 1],
+  ['FRA40', 'France 40 Index', 'FR', 7380, 0.00045, 1.0, 'EUR', 0.7, 0.5, 1],
+  ['EU50', 'Euro Stoxx 50 Index', 'EX', 4980, 0.00045, 1.0, 'EUR', 0.8, 1, 0],
+  ['ESP35', 'Spain 35 Index', 'ES', 11800, 0.00045, 3, 'EUR', 0.7, 1, 0],
+  ['ITA40', 'Italy 40 Index', 'IT', 34500, 0.0005, 6, 'EUR', 0.8, 5, 0],
+  ['NED25', 'Netherlands 25 Index', 'NL', 905, 0.00045, 0.2, 'EUR', 0.8, 0.05, 2],
+  ['SUI20', 'Switzerland 20 Index', 'SW', 11950, 0.00035, 2, 'CHF', 0.5, 1, 0],
+  ['JPN225', 'Japan 225 Index', 'NK', 39200, 0.0005, 7, 'JPY', 0.9, 5, 0, 1.5],
+  ['AUS200', 'Australia 200 Index', 'AU', 8350, 0.0004, 1.5, 'AUD', 0.6, 1, 0],
+  ['CHINA50', 'China A50 Index', 'CN', 13500, 0.0007, 5, 'USD', 0.7, 1, 0],
+  ['CAN60', 'Canada 60 Index', 'CA', 1520, 0.0004, 0.4, 'CAD', 0.6, 0.1, 1],
+]);
+
 const NASDAQ: SymbolDef[] = [
-  { id: 'NAS100', name: 'NAS100', desc: 'US Tech 100 Index', cls: 'nasdaq', session: 'always', mono: 'NQ', base: 24500, vol1m: 0.0006, spread: 1.2, contract: 10, digits: 1, leverage: 200, quoteCcy: 'USD', newsMag: 0.007, beta: 1.0, newsWeight: 3 },
   ...stocks([
     ['AAPL', 'Apple Inc.', 228.5, 0.0011, 1.1],
     ['MSFT', 'Microsoft Corp.', 425.2, 0.001, 1.0],
@@ -155,7 +203,7 @@ const NASDAQ: SymbolDef[] = [
   ]),
 ];
 
-export const SYMBOLS: SymbolDef[] = [...FX, ...FUTURES, ...NASDAQ];
+export const SYMBOLS: SymbolDef[] = [...FX, ...FUTURES, ...INDICES, ...NASDAQ];
 export const SYMBOL_MAP: Record<string, SymbolDef> = Object.fromEntries(SYMBOLS.map((s) => [s.id, s]));
 
 // derived instruments inherit reference price & volatility from their legs
@@ -169,8 +217,8 @@ for (const s of SYMBOLS) {
   s.beta = s.derive.op === 'mul' ? a.beta + b.beta : a.beta - b.beta;
 }
 
-export const CLASSES: AssetClass[] = ['fx', 'futures', 'nasdaq'];
-export const CLASS_LABEL: Record<AssetClass, string> = { fx: 'Forex', futures: 'Futures', nasdaq: 'Nasdaq' };
+export const CLASSES: AssetClass[] = ['fx', 'futures', 'indices', 'nasdaq'];
+export const CLASS_LABEL: Record<AssetClass, string> = { fx: 'Forex', futures: 'Futures', indices: 'Indices', nasdaq: 'Nasdaq' };
 
 /** Admin-created market: same deterministic price model as built-ins, seeded by its id. */
 export interface CustomMarket {
@@ -196,7 +244,7 @@ export function registerCustom(m: CustomMarket): SymbolDef | null {
     name: m.name || m.id,
     desc: m.desc || 'Custom market',
     cls: m.cls,
-    session: m.cls === 'fx' ? 'fx' : m.cls === 'futures' ? 'metal' : 'always',
+    session: m.cls === 'fx' ? 'fx' : m.cls === 'futures' || m.cls === 'indices' ? 'metal' : 'always',
     mono: m.id.slice(0, 2),
     base: m.base,
     vol1m: m.vol1m,
@@ -223,8 +271,17 @@ export function unregisterCustom(id: string) {
   delete SYMBOL_MAP[id];
 }
 
+/** Display precision: 'standard' = instrument digits, 'extended' = 13 decimals. */
+let extendedPrecision = false;
+export const MAX_DIGITS = 13;
+export function setExtendedPrecision(on: boolean) {
+  extendedPrecision = on;
+}
+export function displayDigits(sym: SymbolDef): number {
+  return extendedPrecision ? MAX_DIGITS : sym.digits;
+}
 export function fmtPrice(sym: SymbolDef, p: number): string {
-  return p.toFixed(sym.digits);
+  return p.toFixed(displayDigits(sym));
 }
 
 /** Smallest price increment. */

@@ -11,6 +11,24 @@ export interface Mail {
   body: string;
   read: boolean;
   tone: 'good' | 'bad' | 'info';
+  /** Payout certificate attached (take-profit fills, competition prizes). */
+  cert?: Certificate;
+}
+
+export interface Certificate {
+  kind: 'tp' | 'prize';
+  title: string;
+  amount: number;
+  at: number;
+  ref: string;
+  holder?: string;
+  sym?: string;
+  side?: 1 | -1;
+  lots?: number;
+  open?: number;
+  close?: number;
+  place?: number;
+  field?: number;
 }
 
 const KEY = 'apex.mail.v1';
@@ -38,8 +56,8 @@ class Mailbox {
     this.version++;
     this.listeners.forEach((l) => l());
   }
-  add(subject: string, body: string, tone: Mail['tone'] = 'info', from = 'Liquidated') {
-    this.items = [{ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: Date.now() / 1000, from, subject, body, read: false, tone }, ...this.items].slice(0, 200);
+  add(subject: string, body: string, tone: Mail['tone'] = 'info', from = 'Liquidated', cert?: Certificate) {
+    this.items = [{ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: Date.now() / 1000, from, subject, body, read: false, tone, cert }, ...this.items].slice(0, 200);
     this.save();
   }
   markRead(id: string) {

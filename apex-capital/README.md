@@ -89,12 +89,39 @@ Run both migrations in the SQL editor, in order:
    private DMs (RPC-only reads), push subscriptions + forecast schedule
 4. `supabase/migrations/20261103000000_apex_auth_news_markets.sql`: logins ↔ profiles, cloud saves, admin e-mails,
    admin-created markets, live news
+5. `supabase/migrations/20261107000000_apex_competitions.sql`: competitions (admin open / start / cancel,
+   min. 4 players), entries and scores, player-to-player loans
 
-Make yourself an admin after opening an account once in the app:
+Admins come only from `admin_emails` (a verified sign-in e-mail). To make exactly one account admin and revoke
+everyone else, run this in the SQL editor (keep the real e-mail out of git):
 
 ```sql
-update public.players set is_admin = true where name = 'YourAlias';
+delete from public.admin_emails;
+insert into public.admin_emails (email) values ('you@example.com');
+update public.players set is_admin = false;   -- the admin gets it back on their next sign-in
 ```
+
+## Competitions (Wealth → Compete)
+
+| Mode | Bracket | Prizes | Buy-in | Stack | Mechanic |
+|---|---|---|---|---|---|
+| “Whale” Hunt | Silver III – Gold I | €1,000 / €800 / €500 | €250 | €10K | 4 hedge funds; every 10 min the Whale backs the best fund with 4:1 margin |
+| Margin Call Roulette | Gold V – Platinum I | €10K / €5K / €2.5K | €2,000 | €10K | start 3.5:1 leveraged; a ±4–9% swing every 10 min; 60 s to cover a margin call or borrow, else eliminated |
+| The Inside Scoop | Gold V – Diamond I | €50K / €25K / €10K | €8,000 | €25K | buy / sell / steal clues (60–90% reliable) before each event goes public |
+| Pump & Dump | Diamond I – Quant I | €100K / €50K / €35K | €25,000 | €100K | worthless 13-decimal token, 15 min of hype + player buying, then a mandatory −92% rug |
+
+The buy-in comes out of the real balance; trading inside uses competition money only. Prize pools are funded by
+buy-ins and reach the full amounts at `prizes ÷ buy-in` players (fewer players → proportionally smaller pool),
+and an admin can only start with 4+ players, so nobody takes a full pot alone. Event schedules are derived from the
+competition's seed, so every entrant sees the same swings / scoops / pump. Scores are reported by clients (game-level
+trust, not exchange-grade anti-cheat). **Practice solo** runs any mode offline with no prize.
+
+## Margin model (`src/game/margin.ts`)
+
+`Cash`, `Position Value` (longs +, shorts −), `Total Equity = Cash + Position Value`, `Maintenance = 30% × gross
+exposure`, `Used Margin = max(0, gross − equity)` (the loan), `Buying Power = 2 × equity − gross`. `checkMarginCall()`
+flags `margin_call` when equity < maintenance; `liquidationPlan()` closes the biggest loser first until compliant.
+Used by "Margin · 2:1" accounts (Settings → New account) and every competition.
 
 All writes go through `security definer` RPCs that verify a per-device secret; clients only read.
 If the server is unreachable or not migrated, Chat falls back to a clearly labelled **local demo**

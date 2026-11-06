@@ -4,7 +4,7 @@ import type { Deal, Metrics } from '../game/account.ts';
 import { settings, useSettings } from '../game/settings.ts';
 import { useT } from '../i18n.ts';
 import { sfx } from '../sfx.ts';
-import { ChartView } from './ChartView.tsx';
+import { ChartView, type TicketPrefill } from './ChartView.tsx';
 import { HistoryView } from './HistoryView.tsx';
 import { OrderTicket } from './OrderTicket.tsx';
 import { Quotes } from './Quotes.tsx';
@@ -26,6 +26,7 @@ export function TradeTab({ now, m, sub, onSub, onShare }: { now: number; m: Metr
   const t = useT();
   const [focus, setFocus] = useState<Deal | null>(null);
   const [ticket, setTicket] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<TicketPrefill | undefined>(undefined);
   const sym = st.sym;
 
   const openChart = (s: string) => {
@@ -58,13 +59,13 @@ export function TradeTab({ now, m, sub, onSub, onShare }: { now: number; m: Metr
             onSym={(s) => { setFocus(null); settings.set({ sym: s }); }}
             onTf={(tf) => settings.set({ tf })}
             onClearFocus={() => setFocus(null)}
-            onNewOrder={() => setTicket(sym)}
+            onNewOrder={(p) => { setPrefill(p); setTicket(sym); }}
           />
         )}
         {sub === 'trade' && <TradeScreen now={now} m={m} onNewOrder={() => setTicket(sym)} onChart={openChart} />}
         {sub === 'history' && <HistoryView onShowOnChart={showDeal} onShare={onShare} />}
       </div>
-      {ticket && <OrderTicket sym={ticket} now={now} onClose={() => setTicket(null)} />}
+      {ticket && <OrderTicket sym={ticket} now={now} prefill={prefill} onClose={() => { setTicket(null); setPrefill(undefined); }} />}
     </div>
   );
 }

@@ -71,10 +71,6 @@ export function Communities({ now, notify, onOpenSymbol, onProfile, openRoom }: 
           <span>
             <b>Local demo</b> · {c.localReason} Messages stay on this device.
           </span>
-          <label>
-            Admin
-            <button className={`switch ${c.isAdmin ? 'on' : ''}`} aria-label="Demo admin" onClick={() => c.setDemoAdmin(!c.isAdmin)} />
-          </label>
         </div>
       )}
       {c.mode === 'connecting' && <div className="empty">Connecting to communities…</div>}

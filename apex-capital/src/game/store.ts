@@ -5,6 +5,7 @@ import { SYMBOL_MAP, nextOpen, pointOf } from '../market/symbols.ts';
 import {
   START_BALANCE,
   freshAccount,
+  type AccountType,
   metrics,
   newId,
   positionProfit,
@@ -206,12 +207,12 @@ class GameStore {
       return { ok: false, why: `Close all positions and hold at least €${START_BALANCE} on this account first. New accounts can't be used to escape a drawdown.` };
     return { ok: true };
   }
-  openNewAccount(): boolean {
+  openNewAccount(type: AccountType = 'mt5'): boolean {
     const c = this.canOpenNewAccount();
     if (!c.ok) return this.err(c.why!);
     this.flush();
     const login = newLogin();
-    const acc = freshAccount(login, this.account.blownCount);
+    const acc = freshAccount(login, this.account.blownCount, type);
     this.accounts = [...this.accounts, { login, createdAt: acc.createdAt }];
     this.saveIndex(login);
     this.account = acc;
@@ -240,6 +241,17 @@ class GameStore {
     setItem(ACCOUNTS_KEY, JSON.stringify({ active, list: this.accounts } satisfies AccountIndex));
   }
 
+  /** Balance operation (competition buy-in, prize, refund). Returns false if it would go negative. */
+  credit(amount: number, note: string): boolean {
+    const acc = this.account;
+    if (!Number.isFinite(amount) || amount === 0) return false;
+    if (acc.balance + amount < 0) return this.err('Not enough balance.');
+    const op = { id: newId(), at: Date.now() / 1000, amount, note };
+    const balance = acc.balance + amount;
+    this.commit({ ...acc, balance, peakBalance: Math.max(acc.peakBalance, balance), credits: [op, ...(acc.credits ?? [])].slice(0, 200) });
+    return true;
+  }
+
   // ---------------------------------------------------------------- trading
   private guard(sym: string, lots: number, t: number): boolean {
     if (!SYMBOL_MAP[sym]) return this.err('Unknown symbol.');
@@ -259,8 +271,8 @@ class GameStore {
       return this.err(`Requote: price moved to ${price.toFixed(def.digits)} (deviation ${opts.deviation} pts).`);
     const acc = this.account;
     const m = metrics(acc, quotesFor(acc, t));
-    const need = requiredMargin(sym, lots, price, t);
-    if (need > m.free) return this.err(`Not enough money: €${need.toFixed(2)} margin required, €${Math.max(0, m.free).toFixed(2)} free.`);
+    const need = requiredMargin(sym, lots, price, t, acc.type);
+    if (need > m.free) return this.err(acc.type === 'margin' ? `Exceeds 2:1 leverage: €${need.toFixed(2)} margin required, €${Math.max(0, m.free).toFixed(2)} buying power left (÷2).` : `Not enough money: €${need.toFixed(2)} margin required, €${Math.max(0, m.free).toFixed(2)} free.`);
     if (sl !== null && (side === 1 ? sl >= q.bid : sl <= q.ask)) return this.err('Invalid stops: stop loss is through the market.');
     if (tp !== null && (side === 1 ? tp <= q.bid : tp >= q.ask)) return this.err('Invalid stops: take profit is through the market.');
     const pos: Position = { id: newId(), sym, side, lots, open: price, openTime: t, sl, tp, orderKind: side === 1 ? 'buy' : 'sell' };

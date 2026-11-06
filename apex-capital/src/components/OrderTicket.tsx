@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { pnlFor, quote } from '../market/engine.ts';
+import { pnlFor, quote, trendOf } from '../market/engine.ts';
 import { SYMBOLS, SYMBOL_MAP, fmtPrice, pointOf } from '../market/symbols.ts';
-import { PENDING_LABEL, metrics, quotesFor, requiredMargin, validatePending, type PendingType, type Side } from '../game/account.ts';
+import { PENDING_LABEL, leverageFor, metrics, quotesFor, requiredMargin, validatePending, type PendingType, type Side } from '../game/account.ts';
 import { game, useGame } from '../game/store.ts';
 import { settings, useSettings } from '../game/settings.ts';
 import { money } from '../format.ts';
@@ -70,23 +70,24 @@ function TickChart({ sym, now }: { sym: string; now: number }) {
   );
 }
 
-export function OrderTicket({ sym: initialSym, now, onClose, initialType = 'market' }: { sym: string; now: number; onClose: () => void; initialType?: TicketType }) {
+export function OrderTicket({ sym: initialSym, now, onClose, initialType = 'market', prefill }: { sym: string; now: number; onClose: () => void; initialType?: TicketType; prefill?: { sl?: string; tp?: string; lots?: number } }) {
   const t = useT();
   const st = useSettings();
   const g = useGame();
   const [sym, setSym] = useState(initialSym);
   const [type, setType] = useState<TicketType>(initialType);
-  const [lots, setLots] = useState(st.quickLots);
+  const [lots, setLots] = useState(prefill?.lots ?? st.quickLots);
   const [price, setPrice] = useState('');
   const [stopLimit, setStopLimit] = useState('');
-  const [sl, setSl] = useState('');
-  const [tp, setTp] = useState('');
+  const [sl, setSl] = useState(prefill?.sl ?? '');
+  const [tp, setTp] = useState(prefill?.tp ?? '');
   const [deviation, setDeviation] = useState(st.deviation);
   const [expiry, setExpiry] = useState<'gtc' | 'today' | 'specified'>('gtc');
   const [expAt, setExpAt] = useState(() => new Date(Date.now() + 86400_000 - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
   const [done, setDone] = useState<string | null>(null);
   const def = SYMBOL_MAP[sym];
   const q = quote(sym, now);
+  const trend = trendOf(sym, st.tf, now);
   const pip = pointOf(def) * (def.digits === 3 || def.digits === 5 ? 10 : 1);
   const dist = def.base * def.vol1m * 6;
   const pending = type !== 'market';
@@ -113,7 +114,7 @@ export function OrderTicket({ sym: initialSym, now, onClose, initialType = 'mark
   const nTp = num(tp);
   const entry = pending ? (nStopLimit ?? nPrice ?? q.mid) : side === 1 ? q.ask : q.bid;
   const m = metrics(g.account, quotesFor(g.account, now));
-  const margin = requiredMargin(sym, lots, entry, now);
+  const margin = requiredMargin(sym, lots, entry, now, g.account.type);
   const eur = (from: number, to: number | null, s: Side) => (to === null || !Number.isFinite(to) ? null : pnlFor(def, (to - from) * s, lots, now));
   const pendingErr = pending && nPrice !== null ? validatePending(type as PendingType, nPrice, nStopLimit, nSl, nTp, q) : null;
 
@@ -215,7 +216,7 @@ export function OrderTicket({ sym: initialSym, now, onClose, initialType = 'mark
         <div className="ticketinfo num">
           <span>Margin {money(margin)}</span>
           <span>Free {money(m.free)}</span>
-          <span>1:{def.leverage}</span>
+          <span>1:{leverageFor(sym, g.account.type)}</span>
         </div>
         {pending ? (
           (lossAtSl !== null || winAtTp !== null) && (
@@ -241,8 +242,8 @@ export function OrderTicket({ sym: initialSym, now, onClose, initialType = 'mark
           <button className="primary" disabled={!q.open || !!pendingErr || nPrice === null} onClick={place}>{t('o.place')}</button>
         ) : (
           <div className="row2">
-            <button className="bigside sell" disabled={!q.open} onClick={() => market(-1)}>{t('o.sell')}</button>
-            <button className="bigside buy" disabled={!q.open} onClick={() => market(1)}>{t('o.buy')}</button>
+            <button className={`bigside sell ${trend === -1 ? 'hot' : ''}`} disabled={!q.open} onClick={() => market(-1)}>{t('o.sell')}</button>
+            <button className={`bigside buy ${trend === 1 ? 'hot' : ''}`} disabled={!q.open} onClick={() => market(1)}>{t('o.buy')}</button>
           </div>
         )}
         <p className="fine">Attention! Simulated execution. Trades on market-execution use the current Bid/Ask; SL and TP must sit beyond the market.</p>

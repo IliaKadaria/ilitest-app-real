@@ -1,15 +1,15 @@
 import logoFull from '../assets/logo-full.png';
 import { useRef, useState } from 'react';
-import { CLASSES, SYMBOL_MAP, type AssetClass, type Ccy } from '../market/symbols.ts';
+import { CLASSES, SYMBOL_MAP, fmtPrice, type AssetClass, type Ccy } from '../market/symbols.ts';
 import { customMarkets, useCustomMarkets } from '../market/custom.ts';
 import { auth, useAuth, type Provider } from '../online/auth.ts';
 import { cloud } from '../online/cloud.ts';
 import { NewsFeed } from './NewsFeed.tsx';
-import { START_BALANCE } from '../game/account.ts';
+import { START_BALANCE, type AccountType } from '../game/account.ts';
 import { divisionFor } from '../game/tiers.ts';
 import { MAX_ACCOUNTS, game, useGame } from '../game/store.ts';
 import { COLOR_PRESETS, settings, useSettings, type ChartColors, type ChartToggles, type Theme } from '../game/settings.ts';
-import { mail, useMail } from '../game/mail.ts';
+import { mail, useMail, type Certificate } from '../game/mail.ts';
 import { push, type PushState } from '../online/push.ts';
 import { social } from '../online/social.ts';
 import { net } from '../online/net.ts';
@@ -196,6 +196,7 @@ function ProfileEdit({ notify }: { notify: Notify }) {
 function Accounts({ notify }: { notify: Notify }) {
   const g = useGame();
   const can = game.canOpenNewAccount();
+  const [type, setType] = useState<AccountType>('mt5');
   return (
     <div className="pad stack">
       {g.accounts.map((a) => {
@@ -205,7 +206,7 @@ function Accounts({ notify }: { notify: Notify }) {
           <button key={a.login} className={`acctrow card ${active ? 'on' : ''}`} onClick={() => { if (!active && game.switchAccount(a.login)) notify('Account switched', `#${a.login}`, 'good'); }}>
             <span className="qname">
               <b>#{a.login} · Liquidated-Demo</b>
-              <small>{g.profile?.name} · Hedge · 1:500 · opened {new Date(a.createdAt).toLocaleDateString()}</small>
+              <small>{g.profile?.name} · {s?.type === 'margin' ? 'Margin · 2:1 · 30% maint.' : 'Hedge · MT5 · up to 1:500'} · opened {new Date(a.createdAt).toLocaleDateString()}</small>
             </span>
             <span style={{ textAlign: 'right' }}>
               <b className="num">{s ? compactMoney(s.balance) : '—'}</b>
@@ -217,14 +218,39 @@ function Accounts({ notify }: { notify: Notify }) {
       <div className="card pad">
         <b>Open a new demo account</b>
         <p className="muted" style={{ margin: '6px 0 10px', fontSize: 13 }}>Fresh {money(START_BALANCE)} balance, separate history. Up to {MAX_ACCOUNTS} accounts; switch any time from here.</p>
+        <div className="seg3" style={{ margin: '0 0 8px' }}>
+          <button className={type === 'mt5' ? 'on' : ''} onClick={() => setType('mt5')}>MT5 · CFD</button>
+          <button className={type === 'margin' ? 'on' : ''} onClick={() => setType('margin')}>Margin · 2:1</button>
+        </div>
+        <p className="hint" style={{ textAlign: 'left', margin: '0 0 10px' }}>{type === 'mt5' ? 'Per-market leverage (up to 1:500). Stop-out at 50% margin level.' : 'Max 2:1 leverage. Margin call when equity drops below 30% of position value: positions are liquidated, biggest loser first, until you comply.'}</p>
         {!can.ok && <div className="warnline">{can.why}</div>}
-        <button className="primary" style={{ width: '100%' }} disabled={!can.ok} onClick={() => { if (game.openNewAccount()) notify('Account opened', `#${game.account.login} · ${money(START_BALANCE)}`, 'good'); }}>Open account</button>
+        <button className="primary" style={{ width: '100%' }} disabled={!can.ok} onClick={() => { if (game.openNewAccount(type)) notify('Account opened', `#${game.account.login} · ${money(START_BALANCE)}`, 'good'); }}>Open account</button>
       </div>
     </div>
   );
 }
 
 // -------------------------------------------------------------------- mailbox
+function CertificateCard({ c }: { c: Certificate }) {
+  const def = c.sym ? SYMBOL_MAP[c.sym] : null;
+  return (
+    <div className="cert" onClick={(e) => e.stopPropagation()}>
+      <div className="ct-top"><span>Liquidated Settlements</span><span>No. {c.ref}</span></div>
+      <h4>Payout certificate · {c.title}</h4>
+      <div className="ct-amt">{money(c.amount, true)}</div>
+      <div className="ct-grid">
+        <div><span>Paid to</span><b>{c.holder ?? 'Trader'}</b></div>
+        <div><span>Date</span><b>{new Date(c.at * 1000).toLocaleString([], { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</b></div>
+        {def && <div><span>Instrument</span><b>{def.name} · {c.side === -1 ? 'SELL' : 'BUY'} {c.lots?.toFixed(2)}</b></div>}
+        {def && c.open !== undefined && c.close !== undefined && <div><span>Entry → exit</span><b>{fmtPrice(def, c.open)} → {fmtPrice(def, c.close)}</b></div>}
+        {c.place !== undefined && <div><span>Final place</span><b>#{c.place} of {c.field}</b></div>}
+        {c.kind === 'prize' && <div><span>Credited to</span><b>Account balance</b></div>}
+      </div>
+      <div className="ct-foot"><span>Simulated funds · not redeemable for cash</span><i className="ct-seal">PAID</i></div>
+    </div>
+  );
+}
+
 function Mailbox() {
   const mb = useMail();
   const [open, setOpen] = useState<string | null>(null);
@@ -236,9 +262,16 @@ function Mailbox() {
         <div key={m.id} className={`mailrow ${m.read ? '' : 'unreadmail'}`} onClick={() => { setOpen(open === m.id ? null : m.id); mail.markRead(m.id); }}>
           <i className={`dot ${m.tone}`} />
           <div>
-            <div className="mailtop"><b>{m.subject}</b><small>{hhmm(m.at)}</small></div>
+            <div className="mailtop"><b>{m.subject}{m.cert && <span className="certtag">CERT</span>}</b><small>{hhmm(m.at)}</small></div>
             <div className="muted mailfrom">{m.from} · {new Date(m.at * 1000).toLocaleDateString()}</div>
-            {open === m.id ? <p className="mailbody">{m.body}</p> : <div className="muted mailprev">{m.body}</div>}
+            {open === m.id ? (
+              <>
+                <p className="mailbody">{m.body}</p>
+                {m.cert && <CertificateCard c={m.cert} />}
+              </>
+            ) : (
+              <div className="muted mailprev">{m.body}</div>
+            )}
           </div>
           {open === m.id && <button className="ghost sm" onClick={(e) => { e.stopPropagation(); mail.remove(m.id); }}>Delete</button>}
         </div>
@@ -285,6 +318,11 @@ function Charts() {
     <>
       <div className="menu card">
         {TOGGLES.map(([k, label, sub]) => <Toggle key={k} on={st.toggles[k]} label={label} sub={sub} onClick={() => settings.toggle(k)} />)}
+      </div>
+      <div className="section"><span className="eyebrow">Price precision</span></div>
+      <div className="seg3" style={{ margin: '0 16px' }}>
+        <button className={st.precision !== 'extended' ? 'on' : ''} onClick={() => settings.set({ precision: 'standard' })}>Instrument digits</button>
+        <button className={st.precision === 'extended' ? 'on' : ''} onClick={() => settings.set({ precision: 'extended' })}>13 decimals</button>
       </div>
       <div className="section"><span className="eyebrow">Colors</span></div>
       <div className="presetrow">
@@ -360,7 +398,7 @@ function About() {
       <div className="eyebrow">Day Trading Game</div>
       <p className="muted">MetaTrader 5-style day-trading game. 52 instruments across Forex, Metals and Nasdaq, simulated deterministically so every player trades the same market.</p>
       <p className="fine">Simulated markets and funds. Not investment advice. Stock tickers are used for realism only; their prices and headlines are generated by the game.</p>
-      <p className="fine">Charts by TradingView Lightweight Charts™.</p>
+      <p className="fine">Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView</a> Lightweight Charts™ · Copyright © TradingView, Inc. (Apache-2.0).</p>
     </div>
   );
 }
@@ -415,7 +453,7 @@ function AdminMarkets({ notify }: { notify: Notify }) {
   const VOL: Record<string, number> = { low: 0.0003, med: 0.0008, high: 0.0018, wild: 0.004 };
   const submit = async () => {
     const base = Number(f.base);
-    const digits = Math.max(0, Math.min(6, Number(f.digits) || 0));
+    const digits = Math.max(0, Math.min(13, Number(f.digits) || 0));
     const e = await customMarkets.add({
       id: f.id.toUpperCase(), name: f.name || f.id.toUpperCase(), desc: f.desc, cls: f.cls, base, vol1m: VOL[f.vol], digits,
       contract: Number(f.contract), leverage: Number(f.leverage), spread: Number(f.spread) || Math.max(Math.pow(10, -digits), base * 0.0002), quoteCcy: f.ccy,

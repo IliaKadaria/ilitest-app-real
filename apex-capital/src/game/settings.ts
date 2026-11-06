@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { getItem, setItem } from '../storage.ts';
-import { CLASSES, SYMBOLS, SYMBOL_MAP, type AssetClass } from '../market/symbols.ts';
+import { CLASSES, SYMBOLS, SYMBOL_MAP, setExtendedPrecision, type AssetClass } from '../market/symbols.ts';
 
 // Everything the trader configures (chart look, indicators, drawings,
 // watchlist, interface). One persisted store, MT5-style defaults.
@@ -43,15 +43,30 @@ export interface ChartToggles {
   preload: boolean;
 }
 
-export type IndicatorType = 'ma' | 'ema' | 'bb' | 'env' | 'sar' | 'rsi' | 'macd' | 'stoch' | 'atr' | 'cci';
+export type IndicatorType =
+  | 'ma' | 'ema' | 'wma' | 'bb' | 'env' | 'sar' | 'vwap' | 'ichimoku' | 'donchian' | 'keltner' | 'supertrend'
+  | 'rsi' | 'macd' | 'stoch' | 'atr' | 'cci' | 'wpr' | 'mom' | 'adx' | 'ao' | 'stddev'
+  | 'obv' | 'mfi'
+  | 'delta' | 'cvd' | 'vprofile' | 'gex'
+  | 'custom';
 export interface Indicator {
   id: string;
   type: IndicatorType;
   period: number;
   color: string;
+  /** custom: formula, display name and where it is drawn. */
+  expr?: string;
+  name?: string;
+  pane?: boolean;
 }
 
-export type ObjType = 'hline' | 'vline' | 'trend' | 'rect' | 'fibo' | 'text';
+export type ObjType =
+  | 'hline' | 'hray' | 'vline' | 'cross' | 'trend' | 'ray' | 'extline' | 'arrow'
+  | 'channel' | 'pitchfork'
+  | 'fibo' | 'fibext'
+  | 'rect' | 'ellipse' | 'triangle'
+  | 'range' | 'long' | 'short'
+  | 'text' | 'arrowup' | 'arrowdown' | 'pricelabel';
 export interface ChartObject {
   id: string;
   type: ObjType;
@@ -59,9 +74,18 @@ export interface ChartObject {
   p1: number;
   t2?: number;
   p2?: number;
+  t3?: number;
+  p3?: number;
   color: string;
   label?: string;
 }
+
+/** Clicks needed to place each drawing tool. */
+export const OBJ_POINTS: Record<ObjType, 1 | 2 | 3> = {
+  hline: 1, hray: 1, vline: 1, cross: 1, text: 1, arrowup: 1, arrowdown: 1, pricelabel: 1,
+  trend: 2, ray: 2, extline: 2, arrow: 2, fibo: 2, rect: 2, ellipse: 2, range: 2, long: 2, short: 2,
+  channel: 3, pitchfork: 3, fibext: 3, triangle: 3,
+};
 
 export interface Settings {
   lang: Lang;
@@ -78,6 +102,8 @@ export interface Settings {
   watch: Record<AssetClass, string[]>;
   quickLots: number;
   deviation: number;
+  /** Price display: instrument digits or 13 decimals. */
+  precision: 'standard' | 'extended';
 }
 
 export const COLOR_PRESETS: Record<string, { label: string; colors: ChartColors }> = {
@@ -136,6 +162,7 @@ const DEFAULTS: Settings = {
   watch: defaultWatch(),
   quickLots: 0.01,
   deviation: 20,
+  precision: 'standard',
 };
 
 const KEY = 'apex.settings.v2';
@@ -171,6 +198,9 @@ type Listener = () => void;
 
 class SettingsStore {
   s: Settings = loadSettings();
+  constructor() {
+    setExtendedPrecision(this.s.precision === 'extended');
+  }
   private listeners = new Set<Listener>();
   private version = 0;
   subscribe = (l: Listener) => {
@@ -183,6 +213,7 @@ class SettingsStore {
 
   set(patch: Partial<Settings>) {
     this.s = { ...this.s, ...patch };
+    if (patch.precision) setExtendedPrecision(patch.precision === 'extended');
     setItem(KEY, JSON.stringify(this.s));
     this.version++;
     this.listeners.forEach((l) => l());
@@ -208,8 +239,8 @@ class SettingsStore {
   }
 
   // indicators
-  addIndicator(type: IndicatorType, period: number, color: string) {
-    this.set({ indicators: [...this.s.indicators, { id: `i${Date.now().toString(36)}`, type, period, color }] });
+  addIndicator(type: IndicatorType, period: number, color: string, extra: Partial<Indicator> = {}) {
+    this.set({ indicators: [...this.s.indicators, { id: `i${Date.now().toString(36)}`, type, period, color, ...extra }] });
   }
   updateIndicator(id: string, patch: Partial<Indicator>) {
     this.set({ indicators: this.s.indicators.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
@@ -241,15 +272,34 @@ export function useSettings(): Settings {
   return settings.s;
 }
 
-export const INDICATOR_INFO: Record<IndicatorType, { name: string; short: string; pane: boolean; period: number; color: string }> = {
-  ma: { name: 'Moving Average (SMA)', short: 'MA', pane: false, period: 20, color: '#7aa7ff' },
-  ema: { name: 'Exponential Moving Average', short: 'EMA', pane: false, period: 50, color: '#d6b26e' },
-  bb: { name: 'Bollinger Bands', short: 'BB', pane: false, period: 20, color: '#9fa8ff' },
-  env: { name: 'Envelopes', short: 'ENV', pane: false, period: 14, color: '#b48cff' },
-  sar: { name: 'Parabolic SAR', short: 'SAR', pane: false, period: 0, color: '#e5e5e7' },
-  rsi: { name: 'Relative Strength Index', short: 'RSI', pane: true, period: 14, color: '#d6b26e' },
-  macd: { name: 'MACD', short: 'MACD', pane: true, period: 12, color: '#7aa7ff' },
-  stoch: { name: 'Stochastic Oscillator', short: 'Stoch', pane: true, period: 14, color: '#4cc38a' },
-  atr: { name: 'Average True Range', short: 'ATR', pane: true, period: 14, color: '#ff7a7f' },
-  cci: { name: 'Commodity Channel Index', short: 'CCI', pane: true, period: 14, color: '#5ad1d1' },
+export type IndicatorGroup = 'trend' | 'osc' | 'volume' | 'flow';
+export const INDICATOR_INFO: Record<IndicatorType, { name: string; short: string; pane: boolean; period: number; color: string; group: IndicatorGroup }> = {
+  ma: { name: 'Moving Average (SMA)', short: 'MA', pane: false, period: 20, color: '#7aa7ff', group: 'trend' },
+  ema: { name: 'Exponential Moving Average', short: 'EMA', pane: false, period: 50, color: '#d6b26e', group: 'trend' },
+  wma: { name: 'Weighted Moving Average', short: 'WMA', pane: false, period: 20, color: '#ff9f5a', group: 'trend' },
+  bb: { name: 'Bollinger Bands', short: 'BB', pane: false, period: 20, color: '#9fa8ff', group: 'trend' },
+  env: { name: 'Envelopes', short: 'ENV', pane: false, period: 14, color: '#b48cff', group: 'trend' },
+  sar: { name: 'Parabolic SAR', short: 'SAR', pane: false, period: 0, color: '#e5e5e7', group: 'trend' },
+  vwap: { name: 'VWAP (session)', short: 'VWAP', pane: false, period: 0, color: '#f2c94c', group: 'trend' },
+  ichimoku: { name: 'Ichimoku Kinko Hyo', short: 'Ichi', pane: false, period: 9, color: '#5ad1d1', group: 'trend' },
+  donchian: { name: 'Donchian Channels', short: 'DC', pane: false, period: 20, color: '#4cc38a', group: 'trend' },
+  keltner: { name: 'Keltner Channels', short: 'KC', pane: false, period: 20, color: '#ff7a7f', group: 'trend' },
+  supertrend: { name: 'SuperTrend', short: 'ST', pane: false, period: 10, color: '#4cc38a', group: 'trend' },
+  rsi: { name: 'Relative Strength Index', short: 'RSI', pane: true, period: 14, color: '#d6b26e', group: 'osc' },
+  macd: { name: 'MACD', short: 'MACD', pane: true, period: 12, color: '#7aa7ff', group: 'osc' },
+  stoch: { name: 'Stochastic Oscillator', short: 'Stoch', pane: true, period: 14, color: '#4cc38a', group: 'osc' },
+  atr: { name: 'Average True Range', short: 'ATR', pane: true, period: 14, color: '#ff7a7f', group: 'osc' },
+  cci: { name: 'Commodity Channel Index', short: 'CCI', pane: true, period: 14, color: '#5ad1d1', group: 'osc' },
+  wpr: { name: 'Williams %R', short: '%R', pane: true, period: 14, color: '#b48cff', group: 'osc' },
+  mom: { name: 'Momentum', short: 'Mom', pane: true, period: 14, color: '#9fa8ff', group: 'osc' },
+  adx: { name: 'Average Directional Index', short: 'ADX', pane: true, period: 14, color: '#f2c94c', group: 'osc' },
+  ao: { name: 'Awesome Oscillator', short: 'AO', pane: true, period: 0, color: '#4cc38a', group: 'osc' },
+  stddev: { name: 'Standard Deviation', short: 'StdDev', pane: true, period: 20, color: '#ff9f5a', group: 'osc' },
+  obv: { name: 'On Balance Volume', short: 'OBV', pane: true, period: 0, color: '#7aa7ff', group: 'volume' },
+  mfi: { name: 'Money Flow Index', short: 'MFI', pane: true, period: 14, color: '#d6b26e', group: 'volume' },
+  delta: { name: 'Volume Delta (bar)', short: 'Delta', pane: true, period: 0, color: '#4cc38a', group: 'flow' },
+  cvd: { name: 'Cumulative Volume Delta', short: 'CVD', pane: true, period: 0, color: '#5ad1d1', group: 'flow' },
+  vprofile: { name: 'Volume Profile (visible range)', short: 'VP', pane: false, period: 28, color: '#7aa7ff', group: 'flow' },
+  gex: { name: 'GEX · Dealer Gamma Exposure', short: 'GEX', pane: false, period: 15, color: '#4cc38a', group: 'flow' },
+  custom: { name: 'Custom indicator', short: 'Custom', pane: true, period: 0, color: '#e5e5e7', group: 'trend' },
 };

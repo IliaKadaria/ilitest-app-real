@@ -1,4 +1,5 @@
 import { quote } from '../market/engine.ts';
+import { liquidationPlan } from './margin.ts';
 import {
   HISTORY_LIMIT,
   LOCKOUT_SECONDS,
@@ -112,7 +113,7 @@ export function checkAt(acc: AccountState, t: number): [AccountState, SimEvent[]
     }
     const without = { ...acc, orders: acc.orders.filter((x) => x.id !== o.id) };
     const m = metrics(without, quotesFor(without, t));
-    const need = requiredMargin(o.sym, o.lots, px, t);
+    const need = requiredMargin(o.sym, o.lots, px, t, acc.type);
     if (need > m.free) {
       const r = pendingRecord(o, t, 'rejected', undefined, `No money: €${need.toFixed(2)} margin required`);
       return [recordOrder(without, r), [{ type: 'order_done', record: r }]];
@@ -135,6 +136,19 @@ export function checkAt(acc: AccountState, t: number): [AccountState, SimEvent[]
       return [frozen, [...ev, ...fe]];
     }
     return [next, ev];
+  }
+  // 3a) margin account: maintenance call → liquidate the biggest loser until compliant
+  if (acc.type === 'margin' && acc.positions.length) {
+    const qs = quotesFor(acc, t);
+    const m = metrics(acc, qs);
+    if (m.equity <= 0) return freeze(acc, t, 'Equity depleted');
+    const plan = liquidationPlan(acc, qs, t);
+    const victim = plan.length ? acc.positions.find((p) => p.id === plan[0]) : undefined;
+    if (victim) {
+      const [next, deal] = closeInternal(acc, victim, 'stopout', t);
+      return [next, [{ type: 'stopout', deal }]];
+    }
+    return null;
   }
   // 3) broker stop-out
   if (acc.positions.length) {

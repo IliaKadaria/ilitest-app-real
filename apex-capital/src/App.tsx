@@ -11,11 +11,12 @@ import { Icon } from './components/Icons.tsx';
 import { FloatPnl, ScreenFx, type FxKind } from './components/Juice.tsx';
 import { recentNews, upcomingNews } from './market/engine.ts';
 import { SYMBOL_MAP, fmtPrice } from './market/symbols.ts';
-import { MARGIN_CALL_LEVEL, PENDING_LABEL, START_BALANCE, metrics, quotesFor, type Deal, type Metrics } from './game/account.ts';
+import { MARGIN_CALL_LEVEL, PENDING_LABEL, START_BALANCE, metrics, quotesFor, ticketNo, type Deal, type Metrics } from './game/account.ts';
 import { divisionFor } from './game/tiers.ts';
 import { game, useGame } from './game/store.ts';
 import { settings, useSettings } from './game/settings.ts';
-import { mail, useMail } from './game/mail.ts';
+import { mail, useMail, type Certificate } from './game/mail.ts';
+import { comps } from './online/comps.ts';
 import { net, useNet, type Snapshot } from './online/net.ts';
 import { comms, useComms } from './online/comms.ts';
 import { social, useSocial } from './online/social.ts';
@@ -132,8 +133,10 @@ export default function App() {
             const title = d.reason === 'tp' ? 'Take profit filled' : d.reason === 'sl' ? 'Stop loss filled' : 'Position closed';
             const body = `${SYMBOL_MAP[d.sym].name} ${sideTxt(d.side)} ${d.lots.toFixed(2)} at ${fmtPrice(SYMBOL_MAP[d.sym], d.close)} · ${money(d.profit, true)}`;
             notify(e.away ? `${title} while you were away` : title, body, d.profit >= 0 ? 'good' : 'bad');
+            const cert: Certificate | undefined = d.profit > 0 ? { kind: 'tp', title: d.reason === 'tp' ? 'Take profit' : 'Profit taken', amount: d.profit, at: d.closeTime, ref: ticketNo(d.id), holder: game.profile?.name, sym: d.sym, side: d.side, lots: d.lots, open: d.open, close: d.close } : undefined;
+            if (d.reason === 'manual' && cert) mail.add(`Payout certificate · ${money(d.profit, true)}`, `${body}\nClosed ${new Date(d.closeTime * 1000).toLocaleString()}. Profit credited to account #${game.account.login}.`, 'good', 'Liquidated Settlements', cert);
             if (d.reason !== 'manual') {
-              mail.add(e.away ? `${title} while you were away` : title, `${body}\nFilled ${new Date(d.closeTime * 1000).toLocaleString()}.`, d.profit >= 0 ? 'good' : 'bad');
+              mail.add(e.away ? `${title} while you were away` : title, `${body}\nFilled ${new Date(d.closeTime * 1000).toLocaleString()}.`, d.profit >= 0 ? 'good' : 'bad', d.profit > 0 ? 'Liquidated Settlements' : 'Liquidated', cert);
               if (settings.s.notify[d.reason === 'tp' ? 'tp' : 'sl']) void push.local(`${title} · ${money(d.profit, true)}`, body, `close-${d.id}`);
             }
             if (d.profit >= 25) {
@@ -180,6 +183,12 @@ export default function App() {
     });
   }, []);
 
+  // competitions: margin checks, eliminations, score reports, payouts
+  useEffect(() => {
+    const id = window.setInterval(() => comps.tick(), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // cloud autosave after every account change
   useEffect(() => {
     if (au.state?.mode === 'online') cloud.save();
@@ -193,8 +202,9 @@ export default function App() {
     const me = { id: g.profile.id, secret: g.profile.secret, name: g.profile.name };
     void comms.start(me);
     void social.start(me);
+    void comps.start();
     void push.init(me).then(setPushState);
-    if (!mail.items.length) mail.add('Welcome to Liquidated', `Your demo account #${game.account.login} is open with ${money(START_BALANCE)}.\n\nTrade → Quotes lists 60+ instruments in Forex, Futures and Nasdaq. Swipe a symbol left for New order / Open chart / Delete. Turn on notifications in Settings to hear about take-profit fills even when the app is closed.`, 'info');
+    if (!mail.items.length) mail.add('Welcome to Liquidated', `Your demo account #${game.account.login} is open with ${money(START_BALANCE)}.\n\nTrade → Quotes lists 75+ instruments in Forex, Futures, Indices and Nasdaq. Swipe a symbol left for New order / Open chart / Delete. Turn on notifications in Settings to hear about take-profit fills even when the app is closed.`, 'info');
   }, [g.profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // profile changes → server
@@ -325,7 +335,7 @@ export default function App() {
       <div className="tabbody">
         {tab === 'trade' && <TradeTab now={now} m={m} sub={sub} onSub={setSub} onShare={setStatement} />}
         {tab === 'chat' && <ChatTab now={now} notify={notify} onOpenSymbol={openSymbol} />}
-        {tab === 'wealth' && <WealthTab m={m} onProfile={setProfile} />}
+        {tab === 'wealth' && <WealthTab m={m} onProfile={setProfile} now={now} notify={notify} />}
         {tab === 'settings' && <SettingsTab key={settingsKey} now={now} notify={notify} pushState={pushState} setPushState={setPushState} onSymbol={openSymbol} />}
       </div>
 

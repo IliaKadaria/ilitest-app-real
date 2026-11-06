@@ -19,18 +19,37 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import { buildCandle, candles, quote, recentNews, type Candle } from '../market/engine.ts';
-import { atr, bollinger, cci, ema, envelopes, macd, parabolicSar, rsi, sma, stochastic } from '../market/indicators.ts';
-import { SYMBOL_MAP, fmtPrice } from '../market/symbols.ts';
+import { bucketStart, buildCandle, candles, quote, recentNews, type Candle } from '../market/engine.ts';
+import { adx, atr, awesome, bollinger, cci, cvd, donchian, ema, envelopes, ichimoku, keltner, macd, mfi, momentum, obv, parabolicSar, rsi, sma, stdevOf, stochastic, supertrend, volumeDelta, volumeProfile, vwap, williamsR, wma } from '../market/indicators.ts';
+import { gexProfile } from '../market/gex.ts';
+import { runScript } from '../market/script.ts';
+import { SYMBOL_MAP, displayDigits, fmtPrice } from '../market/symbols.ts';
 import { PENDING_LABEL, positionProfit, type Deal, type PendingOrder, type Position } from '../game/account.ts';
-import { INDICATOR_INFO, type ChartColors, type ChartObject, type ChartToggles, type ChartType, type Indicator, type ObjType } from '../game/settings.ts';
+import { INDICATOR_INFO, OBJ_POINTS, type ChartColors, type ChartObject, type ChartToggles, type ChartType, type Indicator, type ObjType } from '../game/settings.ts';
 import { money } from '../format.ts';
 
 const ts = (t: number) => t as UTCTimestamp;
 const BUY = '#5b8cff';
 const SELL = '#ff6b70';
 const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-const TWO_POINT: ObjType[] = ['trend', 'rect', 'fibo'];
+const FIB_EXT = [0, 0.618, 1, 1.272, 1.618, 2, 2.618];
+const OBJ_COLOR: Partial<Record<ObjType, string>> = { fibo: '#d6b26e', fibext: '#d6b26e', rect: '#7aa7ff', ellipse: '#b48cff', triangle: '#5ad1d1', channel: '#7aa7ff', pitchfork: '#ff9f5a', range: '#9fa8ff', arrowup: '#4cc38a', arrowdown: '#e5484d', long: '#4cc38a', short: '#e5484d' };
+/** Indicators drawn by the SVG overlay instead of chart series. */
+const OVERLAY_ONLY = new Set(['vprofile', 'gex']);
+const HIST_TYPES = new Set(['macd', 'delta', 'ao']);
+export const paneOf = (ind: Indicator) => (ind.type === 'custom' ? !!ind.pane : INDICATOR_INFO[ind.type].pane);
+
+export interface LongPress {
+  x: number;
+  y: number;
+  price: number | null;
+  time: number | null;
+}
+export interface Level {
+  price: number;
+  color: string;
+  label: string;
+}
 
 export interface HoverInfo {
   candle: Candle;
@@ -53,6 +72,10 @@ interface Props {
   deals: Deal[];
   focus: Deal | null;
   onHover?: (h: HoverInfo | null) => void;
+  /** Hold the chart ~1 s (or right-click): open the chart menu. */
+  onLongPress?: (p: LongPress) => void;
+  /** Extra dashed levels (e.g. SL / TP being set in the trade panel). */
+  levels?: Level[];
 }
 
 interface IndSeries {
@@ -98,8 +121,63 @@ function computeIndicator(ind: Indicator, d: Candle[]): number[][] {
       return [atr(d, ind.period)];
     case 'cci':
       return [cci(d, ind.period)];
+    case 'wma':
+      return [wma(close, ind.period)];
+    case 'vwap':
+      return [vwap(d)];
+    case 'ichimoku': {
+      const k = ichimoku(d, ind.period, Math.round(ind.period * 2.9), Math.round(ind.period * 5.8));
+      return [k.tenkan, k.kijun, k.spanA, k.spanB];
+    }
+    case 'donchian': {
+      const k = donchian(d, ind.period);
+      return [k.upper, k.mid, k.lower];
+    }
+    case 'keltner': {
+      const k = keltner(d, ind.period);
+      return [k.mid, k.upper, k.lower];
+    }
+    case 'supertrend':
+      return [supertrend(d, ind.period)];
+    case 'wpr':
+      return [williamsR(d, ind.period)];
+    case 'mom':
+      return [momentum(d, ind.period)];
+    case 'adx': {
+      const k = adx(d, ind.period);
+      return [k.adx, k.plus, k.minus];
+    }
+    case 'ao':
+      return [awesome(d)];
+    case 'stddev':
+      return [stdevOf(close, ind.period)];
+    case 'obv':
+      return [obv(d)];
+    case 'mfi':
+      return [mfi(d, ind.period)];
+    case 'delta':
+      return [volumeDelta(d)];
+    case 'cvd':
+      return [cvd(d)];
+    case 'custom':
+      return runScript(ind.expr ?? '', d);
+    case 'vprofile':
+    case 'gex':
+      return [];
   }
 }
+
+const LINE_NAMES: Partial<Record<Indicator['type'], string[]>> = {
+  bb: ['Mid', 'Up', 'Low'],
+  macd: ['Hist', 'Main', 'Signal'],
+  stoch: ['Main', 'Signal'],
+  env: ['Up', 'Low'],
+  ichimoku: ['Tenkan', 'Kijun', 'Span A', 'Span B'],
+  donchian: ['Up', 'Mid', 'Low'],
+  keltner: ['Mid', 'Up', 'Low'],
+  adx: ['ADX', '+DI', '−DI'],
+};
+const CUSTOM_COLORS = ['#e5e5e7', '#d6b26e', '#7aa7ff', '#ff7a7f'];
 
 const point = (time: number, v: number) => (Number.isFinite(v) ? { time: ts(time), value: v } : { time: ts(time) });
 
@@ -116,20 +194,21 @@ export function Chart(props: Props) {
   const askLine = useRef<IPriceLine | null>(null);
   const tradeLines = useRef<{ line: IPriceLine; pos?: Position }[]>([]);
   const markerKey = useRef('');
-  const pending = useRef<{ t: number; p: number } | null>(null);
+  const pending = useRef<{ t: number; p: number }[]>([]);
   const [preview, setPreview] = useState<{ t: number; p: number } | null>(null);
   const [build, setBuild] = useState(0);
   const [frame, setFrame] = useState(0);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
+  const press = useRef<{ x: number; y: number; timer: number } | null>(null);
 
   // ------------------------------------------------------------ create once
   useEffect(() => {
     if (!el.current) return;
     const c = createChart(el.current, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#121214' }, textColor: '#8e8e93', fontSize: 10.5, fontFamily: "'Geist Mono Variable', ui-monospace, monospace", attributionLogo: true, panes: { separatorColor: 'rgba(229,229,231,0.12)' } },
+      layout: { background: { type: ColorType.Solid, color: '#121214' }, textColor: '#8e8e93', fontSize: 10.5, fontFamily: "'Geist Mono Variable', ui-monospace, monospace", attributionLogo: false, panes: { separatorColor: 'rgba(229,229,231,0.12)' } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.12 } },
       timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8, barSpacing: 7 },
@@ -197,31 +276,30 @@ export function Chart(props: Props) {
     const t = timeOf(p.point.x);
     const pr = main.current?.coordinateToPrice(p.point.y);
     if (t === null || pr === null || pr === undefined) return;
-    const color = tl === 'fibo' ? '#d6b26e' : tl === 'rect' ? '#7aa7ff' : '#e5e5e7';
-    if (!TWO_POINT.includes(tl)) {
-      let label: string | undefined;
-      if (tl === 'text') {
-        try {
-          label = (window.prompt('Text label', 'Note') ?? 'Note').slice(0, 40) || 'Note';
-        } catch {
-          label = 'Note'; // prompt() is blocked in sandboxed frames
-        }
-      }
-      propsRef.current.onPlace({ type: tl, t1: t, p1: pr, color, label });
-      return;
-    }
-    if (!pending.current) {
-      pending.current = { t, p: pr };
+    const color = OBJ_COLOR[tl] ?? '#e5e5e7';
+    const need = OBJ_POINTS[tl];
+    const pts = [...pending.current, { t, p: pr }];
+    if (pts.length < need) {
+      pending.current = pts;
       setPreview({ t, p: pr });
       return;
     }
-    propsRef.current.onPlace({ type: tl, t1: pending.current.t, p1: pending.current.p, t2: t, p2: pr, color });
-    pending.current = null;
+    let label: string | undefined;
+    if (tl === 'text') {
+      try {
+        label = (window.prompt('Text label', 'Note') ?? 'Note').slice(0, 40) || 'Note';
+      } catch {
+        label = 'Note'; // prompt() is blocked in sandboxed frames
+      }
+    }
+    const [a, b, c3] = pts;
+    propsRef.current.onPlace({ type: tl, t1: a.t, p1: a.p, t2: b?.t, p2: b?.p, t3: c3?.t, p3: c3?.p, color, label });
+    pending.current = [];
     setPreview(null);
   };
   const moveRef = useRef((_: MouseEventParams<Time>) => {});
   moveRef.current = (p) => {
-    if (pending.current && p.point) {
+    if (pending.current.length && p.point) {
       const t = timeOf(p.point.x);
       const pr = main.current?.coordinateToPrice(p.point.y);
       if (t !== null && pr != null) setPreview({ t, p: pr });
@@ -235,10 +313,8 @@ export function Chart(props: Props) {
   };
 
   useEffect(() => {
-    if (!tool) {
-      pending.current = null;
-      setPreview(null);
-    }
+    pending.current = [];
+    setPreview(null);
   }, [tool]);
 
   // ------------------------------------------------------------ build series
@@ -266,12 +342,13 @@ export function Chart(props: Props) {
       layout: { background: { type: ColorType.Solid, color: colors.background }, textColor: colors.foreground },
       grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
       rightPriceScale: { borderColor: colors.grid, autoScale: !toggles.freeMove },
-      timeScale: { borderColor: colors.grid, secondsVisible: false, shiftVisibleRangeOnNewBar: !toggles.freeMove },
+      timeScale: { borderColor: colors.grid, secondsVisible: tf < 60, shiftVisibleRangeOnNewBar: !toggles.freeMove },
       handleScroll: { vertTouchDrag: toggles.freeMove, pressedMouseMove: true, horzTouchDrag: true },
     });
 
     const def = SYMBOL_MAP[sym];
-    const fmt = { type: 'price' as const, precision: def.digits, minMove: Math.pow(10, -def.digits) };
+    const digits = displayDigits(def);
+    const fmt = { type: 'price' as const, precision: digits, minMove: Math.pow(10, -digits) };
     const common = { lastValueVisible: false, priceLineVisible: false, priceFormat: fmt };
     main.current =
       type === 'candles'
@@ -287,14 +364,44 @@ export function Chart(props: Props) {
       c.priceScale('vol').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 }, visible: false });
     }
 
+    const d = candles(sym, tf, toggles.preload ? 1500 : 320, Date.now() / 1000);
+    data.current = d;
     let pane = 0;
     for (const ind of indicators) {
-      const info = INDICATOR_INFO[ind.type];
-      const p = info.pane ? ++pane : 0;
+      if (OVERLAY_ONLY.has(ind.type)) {
+        inds.current.push({ ind, series: [] });
+        continue;
+      }
+      const inPane = paneOf(ind);
+      const p = inPane ? ++pane : 0;
+      const paneFmt = ind.type === 'obv' || ind.type === 'cvd' || ind.type === 'delta' ? { type: 'volume' as const } : ind.type === 'stddev' || ind.type === 'ao' || ind.type === 'atr' || ind.type === 'custom' ? { type: 'price' as const, precision: Math.min(8, def.digits + 1), minMove: Math.pow(10, -Math.min(8, def.digits + 1)) } : { type: 'price' as const, precision: 2, minMove: 0.01 };
       const line = (color: string, width: 1 | 2 = 1, extra: object = {}) =>
-        c.addSeries(LineSeries, { color, lineWidth: width, lastValueVisible: info.pane, priceLineVisible: false, crosshairMarkerVisible: false, priceFormat: info.pane ? { type: 'price', precision: 2, minMove: 0.01 } : fmt, ...extra }, p);
+        c.addSeries(LineSeries, { color, lineWidth: width, lastValueVisible: inPane, priceLineVisible: false, crosshairMarkerVisible: false, priceFormat: inPane ? paneFmt : fmt, ...extra }, p);
+      const hist = () => c.addSeries(HistogramSeries, { color: alpha(ind.color, 0.6), lastValueVisible: false, priceLineVisible: false, priceFormat: paneFmt }, p);
       let series: ISeriesApi<SeriesType>[];
       switch (ind.type) {
+        case 'ichimoku':
+          series = [line('#5ad1d1'), line('#ff7a7f'), line(alpha('#4cc38a', 0.8), 1, { lineStyle: LineStyle.Dotted }), line(alpha('#e5484d', 0.8), 1, { lineStyle: LineStyle.Dotted })];
+          break;
+        case 'donchian':
+        case 'keltner':
+          series = ind.type === 'donchian' ? [line(ind.color), line(alpha(ind.color, 0.6), 1, { lineStyle: LineStyle.Dotted }), line(ind.color)] : [line(ind.color), line(alpha(ind.color, 0.7), 1, { lineStyle: LineStyle.Dashed }), line(alpha(ind.color, 0.7), 1, { lineStyle: LineStyle.Dashed })];
+          break;
+        case 'supertrend':
+          series = [line(ind.color, 2, { lineType: 1 })];
+          break;
+        case 'adx':
+          series = [line(ind.color, 2), line('#4cc38a'), line('#e5484d')];
+          break;
+        case 'delta':
+        case 'ao':
+          series = [hist()];
+          break;
+        case 'custom': {
+          const n = Math.max(1, runScript(ind.expr ?? '', d).length);
+          series = Array.from({ length: n }, (_, k) => line(k === 0 ? ind.color : CUSTOM_COLORS[k % CUSTOM_COLORS.length], k === 0 ? 2 : 1));
+          break;
+        }
         case 'bb':
           series = [line(ind.color), line(alpha(ind.color, 0.7), 1, { lineStyle: LineStyle.Dashed }), line(alpha(ind.color, 0.7), 1, { lineStyle: LineStyle.Dashed })];
           break;
@@ -305,13 +412,17 @@ export function Chart(props: Props) {
           series = [line(ind.color, 1, { lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 1.5 })];
           break;
         case 'macd':
-          series = [c.addSeries(HistogramSeries, { color: alpha(ind.color, 0.6), lastValueVisible: false, priceLineVisible: false, priceFormat: { type: 'price', precision: def.digits + 1, minMove: Math.pow(10, -def.digits - 1) } }, p), line('#e5e5e7'), line('#ff7a7f', 1, { lineStyle: LineStyle.Dotted })];
+          series = [c.addSeries(HistogramSeries, { color: alpha(ind.color, 0.6), lastValueVisible: false, priceLineVisible: false, priceFormat: { type: 'price', precision: Math.min(10, def.digits + 1), minMove: Math.pow(10, -Math.min(10, def.digits + 1)) } }, p), line('#e5e5e7'), line('#ff7a7f', 1, { lineStyle: LineStyle.Dotted })];
           break;
         case 'stoch':
           series = [line(ind.color), line('#ff7a7f', 1, { lineStyle: LineStyle.Dashed })];
           break;
         default:
           series = [line(ind.color, ind.type === 'rsi' || ind.type === 'cci' || ind.type === 'atr' ? 1 : 2)];
+      }
+      if (ind.type === 'wpr' || ind.type === 'mfi') {
+        series[0].createPriceLine({ price: ind.type === 'wpr' ? -20 : 80, color: 'rgba(229,229,231,0.25)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: '' });
+        series[0].createPriceLine({ price: ind.type === 'wpr' ? -80 : 20, color: 'rgba(229,229,231,0.25)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: '' });
       }
       if (ind.type === 'rsi' || ind.type === 'stoch') {
         series[0].createPriceLine({ price: 70, color: 'rgba(229,229,231,0.25)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: '' });
@@ -328,14 +439,12 @@ export function Chart(props: Props) {
     for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1);
 
     // data
-    const d = candles(sym, tf, toggles.preload ? 1500 : 320, Date.now() / 1000);
-    data.current = d;
     pushAll(true);
-    c.timeScale().applyOptions({ secondsVisible: false, timeVisible: tf < 86400 });
+    c.timeScale().applyOptions({ secondsVisible: tf < 60, timeVisible: tf < 86400 });
     if (!propsRef.current.focus) c.timeScale().scrollToRealTime();
     setBuild((b) => b + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sym, tf, type, indKey, toggles.volume, toggles.preload, toggles.freeMove, colors]);
+  }, [sym, tf, type, indKey, toggles.volume, toggles.preload, toggles.freeMove, colors, displayDigits(SYMBOL_MAP[sym])]);
 
   const volValue = (c: Candle) => (toggles.tickVolumes ? c.volume : Math.round(c.volume * SYMBOL_MAP[sym].contract * 0.013));
 
@@ -360,11 +469,11 @@ export function Chart(props: Props) {
         const vals = out[k];
         if (!vals) return;
         if (full) {
-          const pts = d.map((c, i) => (ind.type === 'macd' && k === 0 && Number.isFinite(vals[i]) ? { time: ts(c.time), value: vals[i], color: vals[i] >= 0 ? alpha(ind.color, 0.65) : 'rgba(255,122,127,0.6)' } : point(c.time, vals[i])));
+          const pts = d.map((c, i) => (HIST_TYPES.has(ind.type) && k === 0 && Number.isFinite(vals[i]) ? { time: ts(c.time), value: vals[i], color: vals[i] >= 0 ? alpha(ind.color, 0.65) : 'rgba(255,122,127,0.6)' } : point(c.time, vals[i])));
           s.setData(pts as never);
         } else {
           const v = vals[vals.length - 1];
-          if (Number.isFinite(v)) s.update((ind.type === 'macd' && k === 0 ? { time: ts(last.time), value: v, color: v >= 0 ? alpha(ind.color, 0.65) : 'rgba(255,122,127,0.6)' } : { time: ts(last.time), value: v }) as never);
+          if (Number.isFinite(v)) s.update((HIST_TYPES.has(ind.type) && k === 0 ? { time: ts(last.time), value: v, color: v >= 0 ? alpha(ind.color, 0.65) : 'rgba(255,122,127,0.6)' } : { time: ts(last.time), value: v }) as never);
         }
       });
     }
@@ -413,7 +522,7 @@ export function Chart(props: Props) {
     const key = `${tf}:${build}:${news.map((n) => n.id).join(',')}:${hist.map((h) => h.id).join(',')}:${focus?.id ?? ''}`;
     if (!force && key === markerKey.current) return;
     markerKey.current = key;
-    const bucket = (t: number) => ts(Math.floor(t / tf) * tf);
+    const bucket = (t: number) => ts(bucketStart(t, tf));
     const ms: SeriesMarker<Time>[] = news.map((e) => ({
       time: bucket(e.t0),
       position: e.dir > 0 ? ('belowBar' as const) : ('aboveBar' as const),
@@ -441,7 +550,7 @@ export function Chart(props: Props) {
     askLine.current?.applyOptions({ price: q.ask });
     for (const tl of tradeLines.current) if (tl.pos) tl.line.applyOptions({ title: posTitle(tl.pos) });
     if (q.open) {
-      const start = Math.floor(now / tf) * tf;
+      const start = bucketStart(now, tf);
       let lc = d[d.length - 1];
       if (start - lc.time > tf) {
         data.current = candles(sym, tf, d.length, now);
@@ -493,12 +602,13 @@ export function Chart(props: Props) {
     const values: HoverInfo['values'] = [];
     for (const { ind } of inds.current) {
       const out = computeIndicator(ind, data.current);
-      const names = ind.type === 'bb' ? ['Mid', 'Up', 'Low'] : ind.type === 'macd' ? ['Hist', 'Main', 'Signal'] : ind.type === 'stoch' ? ['Main', 'Signal'] : ind.type === 'env' ? ['Up', 'Low'] : [''];
+      const names = LINE_NAMES[ind.type] ?? (ind.type === 'custom' ? ['', 'L2', 'L3', 'L4'] : ['']);
       out.forEach((arr, k) => {
         const v = arr[i];
         if (!Number.isFinite(v)) return;
-        const digits = INDICATOR_INFO[ind.type].pane && ind.type !== 'atr' && ind.type !== 'macd' ? 2 : SYMBOL_MAP[sym].digits + (ind.type === 'macd' ? 1 : 0);
-        values.push({ label: `${INDICATOR_INFO[ind.type].short}${INDICATOR_INFO[ind.type].period ? `(${ind.period})` : ''}${names[k] ? ` ${names[k]}` : ''}`, value: v.toFixed(digits), color: ind.color });
+        const dg = ind.type === 'obv' || ind.type === 'cvd' || ind.type === 'delta' ? 0 : paneOf(ind) && !['atr', 'macd', 'stddev', 'ao', 'custom'].includes(ind.type) ? 2 : Math.min(10, displayDigits(SYMBOL_MAP[sym]) + (ind.type === 'macd' ? 1 : 0));
+        const short = ind.type === 'custom' ? ind.name || 'Custom' : INDICATOR_INFO[ind.type].short;
+        values.push({ label: `${short}${INDICATOR_INFO[ind.type].period ? `(${ind.period})` : ''}${names[k] ? ` ${names[k]}` : ''}`, value: v.toFixed(dg), color: ind.color });
       });
     }
     props.onHover({ candle: { ...hovered, volume: volValue(hovered) }, values });
@@ -555,18 +665,100 @@ export function Chart(props: Props) {
         );
       }
     }
+    // volume profile + GEX (overlay indicators)
+    for (const { ind } of inds.current) {
+      if (ind.type === 'vprofile') {
+        const range = c.timeScale().getVisibleLogicalRange();
+        const d = data.current;
+        const from = Math.max(0, Math.floor(range?.from ?? 0));
+        const to = Math.min(d.length, Math.ceil(range?.to ?? d.length) + 1);
+        const vp = volumeProfile(d.slice(from, to), Math.max(8, Math.min(60, ind.period || 28)));
+        if (vp) {
+          const maxV = Math.max(...vp.bins.map((x) => x.buy + x.sell)) || 1;
+          const width = plotW * 0.28;
+          vp.bins.forEach((bin, i) => {
+            const y1 = yOf(bin.hi);
+            const y2 = yOf(bin.lo);
+            if (y1 === null || y2 === null) return;
+            const h = Math.max(1, y2 - y1 - 1);
+            const inVa = bin.lo >= vp.val - 1e-12 && bin.hi <= vp.vah + 1e-12;
+            const wb = (bin.buy / maxV) * width;
+            const ws = (bin.sell / maxV) * width;
+            overlay.push(
+              <g key={`vp${i}`} opacity={inVa ? 0.75 : 0.4}>
+                <rect x={plotW - wb - ws} y={y1} width={ws} height={h} fill={alpha('#e5484d', 0.8)} />
+                <rect x={plotW - wb} y={y1} width={wb} height={h} fill={alpha(ind.color, 0.85)} />
+              </g>,
+            );
+          });
+          const yp = yOf(vp.poc);
+          if (yp !== null) overlay.push(<g key="vppoc"><line x1={0} x2={plotW} y1={yp} y2={yp} stroke="#f2c94c" strokeDasharray="6 3" strokeOpacity={0.8} /><text x={4} y={yp - 3} className="ovl-label" fill="#f2c94c">POC {fmtPrice(def, vp.poc)}</text></g>);
+          for (const [lv, nm] of [[vp.vah, 'VAH'], [vp.val, 'VAL']] as const) {
+            const y = yOf(lv);
+            if (y !== null) overlay.push(<g key={`vp${nm}`}><line x1={0} x2={plotW} y1={y} y2={y} stroke={ind.color} strokeOpacity={0.45} strokeDasharray="2 4" /><text x={4} y={y - 3} className="ovl-label" fill={ind.color}>{nm}</text></g>);
+          }
+        }
+      }
+      if (ind.type === 'gex') {
+        const q0 = quote(sym, now);
+        const g = gexProfile(sym, q0.mid, now, Math.max(5, Math.min(30, ind.period || 15)));
+        if (g) {
+          const maxG = Math.max(...g.strikes.map((x) => Math.max(x.call, -x.put))) || 1;
+          const width = plotW * 0.3;
+          for (const k of g.strikes) {
+            const y = yOf(k.strike);
+            if (y === null || y < 0 || y > paneH) continue;
+            const wc = (k.call / maxG) * width;
+            const wp = (-k.put / maxG) * width;
+            overlay.push(
+              <g key={`gx${k.strike}`}>
+                <rect x={0} y={y - 2} width={wc} height={3} fill={alpha('#4cc38a', 0.7)} />
+                <rect x={0} y={y + 1} width={wp} height={3} fill={alpha('#e5484d', 0.7)} />
+              </g>,
+            );
+          }
+          const tag = (price: number | null, label: string, col: string, key: string) => {
+            if (price === null) return;
+            const y = yOf(price);
+            if (y === null) return;
+            overlay.push(<g key={key}><line x1={0} x2={plotW} y1={y} y2={y} stroke={col} strokeOpacity={0.75} strokeDasharray="8 4" /><text x={6} y={y - 4} className="ovl-label" fill={col}>{label} {fmtPrice(def, price)}</text></g>);
+          };
+          tag(g.callWall, 'CALL WALL', '#4cc38a', 'gxc');
+          tag(g.putWall, 'PUT WALL', '#e5484d', 'gxp');
+          tag(g.zeroGamma, 'ZERO γ', '#f2c94c', 'gxz');
+        }
+      }
+    }
     // user objects
+    const BIG = 4000;
+    const ext = (x1: number, y1: number, x2: number, y2: number, back: boolean) => {
+      const dx = x2 - x1 || 1e-6;
+      const dy = y2 - y1;
+      return { ax: back ? x1 - dx * BIG : x1, ay: back ? y1 - dy * BIG : y1, bx: x2 + dx * BIG, by: y2 + dy * BIG };
+    };
     const drawObj = (o: Omit<ChartObject, 'id'> & { id: string }, ghost = false) => {
       const x1 = xOf(o.t1);
       const y1 = yOf(o.p1);
       const x2 = o.t2 !== undefined ? xOf(o.t2) : null;
       const y2 = o.p2 !== undefined ? yOf(o.p2) : null;
+      const x3 = o.t3 !== undefined ? xOf(o.t3) : null;
+      const y3 = o.p3 !== undefined ? yOf(o.p3) : null;
       const op = ghost ? 0.55 : 1;
+      const two = x1 !== null && y1 !== null && x2 !== null && y2 !== null;
+      const pct = (a: number, b: number) => `${(((b - a) / a) * 100).toFixed(2)}%`;
       switch (o.type) {
         case 'hline':
           return y1 === null ? null : (
             <g key={o.id} opacity={op}>
               <line x1={0} x2={plotW} y1={y1} y2={y1} stroke={o.color} strokeWidth={1} />
+              <text x={plotW - 4} y={y1 - 4} textAnchor="end" className="ovl-label" fill={o.color}>{fmtPrice(def, o.p1)}</text>
+            </g>
+          );
+        case 'hray':
+          return x1 === null || y1 === null ? null : (
+            <g key={o.id} opacity={op}>
+              <line x1={x1} x2={plotW} y1={y1} y2={y1} stroke={o.color} strokeWidth={1} />
+              <circle cx={x1} cy={y1} r={2.5} fill={o.color} />
               <text x={plotW - 4} y={y1 - 4} textAnchor="end" className="ovl-label" fill={o.color}>{fmtPrice(def, o.p1)}</text>
             </g>
           );
@@ -577,22 +769,82 @@ export function Chart(props: Props) {
               <text x={x1 + 4} y={paneH - 6} className="ovl-label" fill={o.color}>{new Date(o.t1 * 1000).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</text>
             </g>
           );
-        case 'text':
-          return x1 === null || y1 === null ? null : <text key={o.id} x={x1} y={y1} className="ovl-text" fill={o.color} opacity={op}>{o.label}</text>;
-        case 'trend':
-          return x1 === null || y1 === null || x2 === null || y2 === null ? null : (
+        case 'cross':
+          return x1 === null || y1 === null ? null : (
             <g key={o.id} opacity={op}>
-              <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={o.color} strokeWidth={1.5} />
-              <circle cx={x1} cy={y1} r={2.5} fill={o.color} />
-              <circle cx={x2} cy={y2} r={2.5} fill={o.color} />
+              <line x1={x1} x2={x1} y1={0} y2={paneH} stroke={o.color} strokeWidth={1} strokeDasharray="4 3" />
+              <line x1={0} x2={plotW} y1={y1} y2={y1} stroke={o.color} strokeWidth={1} strokeDasharray="4 3" />
+              <text x={x1 + 4} y={y1 - 4} className="ovl-label" fill={o.color}>{fmtPrice(def, o.p1)}</text>
             </g>
           );
+        case 'text':
+          return x1 === null || y1 === null ? null : <text key={o.id} x={x1} y={y1} className="ovl-text" fill={o.color} opacity={op}>{o.label}</text>;
+        case 'pricelabel':
+          return x1 === null || y1 === null ? null : (
+            <g key={o.id} opacity={op}>
+              <path d={`M${x1},${y1} l8,-10 h${fmtPrice(def, o.p1).length * 6.4 + 10} v20 h-${fmtPrice(def, o.p1).length * 6.4 + 10} z`} fill={alpha(o.color, 0.18)} stroke={o.color} />
+              <text x={x1 + 13} y={y1 + 4} className="ovl-label" fill={o.color}>{fmtPrice(def, o.p1)}</text>
+            </g>
+          );
+        case 'arrowup':
+        case 'arrowdown': {
+          if (x1 === null || y1 === null) return null;
+          const up = o.type === 'arrowup';
+          return <path key={o.id} opacity={op} d={up ? `M${x1},${y1} l-8,12 h5 v10 h6 v-10 h5 z` : `M${x1},${y1} l-8,-12 h5 v-10 h6 v10 h5 z`} fill={o.color} />;
+        }
+        case 'trend':
+        case 'ray':
+        case 'extline':
+        case 'arrow': {
+          if (!two) return null;
+          const e = o.type === 'trend' || o.type === 'arrow' ? { ax: x1, ay: y1, bx: x2, by: y2 } : ext(x1, y1, x2, y2, o.type === 'extline');
+          const ang = Math.atan2(y2 - y1, x2 - x1);
+          return (
+            <g key={o.id} opacity={op}>
+              <line x1={e.ax} y1={e.ay} x2={e.bx} y2={e.by} stroke={o.color} strokeWidth={1.5} />
+              <circle cx={x1} cy={y1} r={2.5} fill={o.color} />
+              {o.type === 'arrow' ? <path d={`M${x2},${y2} L${x2 - 11 * Math.cos(ang - 0.4)},${y2 - 11 * Math.sin(ang - 0.4)} L${x2 - 11 * Math.cos(ang + 0.4)},${y2 - 11 * Math.sin(ang + 0.4)} z`} fill={o.color} /> : <circle cx={x2} cy={y2} r={2.5} fill={o.color} />}
+            </g>
+          );
+        }
         case 'rect':
-          return x1 === null || y1 === null || x2 === null || y2 === null ? null : (
+          return !two ? null : (
             <rect key={o.id} opacity={op} x={Math.min(x1, x2)} y={Math.min(y1, y2)} width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)} fill={alpha(o.color, 0.12)} stroke={o.color} strokeWidth={1} />
           );
+        case 'ellipse':
+          return !two ? null : <ellipse key={o.id} opacity={op} cx={(x1 + x2) / 2} cy={(y1 + y2) / 2} rx={Math.abs(x2 - x1) / 2} ry={Math.abs(y2 - y1) / 2} fill={alpha(o.color, 0.12)} stroke={o.color} />;
+        case 'triangle':
+          return !two ? null : <path key={o.id} opacity={op} d={`M${x1},${y1} L${x2},${y2} L${x3 ?? x2},${y3 ?? y2} Z`} fill={alpha(o.color, 0.12)} stroke={o.color} />;
+        case 'channel': {
+          if (!two) return null;
+          const dy = y3 !== null && x3 !== null ? y3 - (y1 + ((y2 - y1) * (x3 - x1)) / (x2 - x1 || 1)) : 0;
+          return (
+            <g key={o.id} opacity={op}>
+              <path d={`M${x1},${y1} L${x2},${y2} L${x2},${y2 + dy} L${x1},${y1 + dy} Z`} fill={alpha(o.color, 0.08)} />
+              <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={o.color} strokeWidth={1.5} />
+              <line x1={x1} y1={y1 + dy} x2={x2} y2={y2 + dy} stroke={o.color} strokeWidth={1.5} />
+              <line x1={x1} y1={y1 + dy / 2} x2={x2} y2={y2 + dy / 2} stroke={o.color} strokeOpacity={0.5} strokeDasharray="4 4" />
+            </g>
+          );
+        }
+        case 'pitchfork': {
+          if (!two) return null;
+          const mx = x3 !== null ? (x2 + x3) / 2 : x2;
+          const my = y3 !== null ? (y2 + y3) / 2 : y2;
+          const e = ext(x1, y1, mx, my, false);
+          const dx = e.bx - x1;
+          const dyy = e.by - y1;
+          return (
+            <g key={o.id} opacity={op}>
+              <line x1={x1} y1={y1} x2={e.bx} y2={e.by} stroke={o.color} strokeWidth={1.5} />
+              <line x1={x2} y1={y2} x2={x2 + dx} y2={y2 + dyy} stroke={o.color} />
+              {x3 !== null && y3 !== null && <line x1={x3} y1={y3} x2={x3 + dx} y2={y3 + dyy} stroke={o.color} />}
+              {x3 !== null && y3 !== null && <line x1={x2} y1={y2} x2={x3} y2={y3} stroke={o.color} strokeOpacity={0.5} />}
+            </g>
+          );
+        }
         case 'fibo': {
-          if (x1 === null || y1 === null || x2 === null || y2 === null || o.p2 === undefined) return null;
+          if (!two || o.p2 === undefined) return null;
           const p1 = o.p1;
           const p2 = o.p2;
           return (
@@ -612,27 +864,135 @@ export function Chart(props: Props) {
             </g>
           );
         }
+        case 'fibext': {
+          if (!two || o.p2 === undefined) return null;
+          const move = o.p2 - o.p1;
+          const base = o.p3 ?? o.p2;
+          const xs = x3 ?? x2;
+          return (
+            <g key={o.id} opacity={op}>
+              <path d={`M${x1},${y1} L${x2},${y2} L${xs},${y3 ?? y2}`} fill="none" stroke={o.color} strokeDasharray="3 3" />
+              {FIB_EXT.map((lv) => {
+                const price = base + move * lv;
+                const y = yOf(price);
+                if (y === null) return null;
+                return (
+                  <g key={lv}>
+                    <line x1={xs} x2={plotW} y1={y} y2={y} stroke={o.color} strokeOpacity={lv === 1 || lv === 1.618 ? 0.9 : 0.5} />
+                    <text x={xs + 3} y={y - 3} className="ovl-label" fill={o.color}>{(lv * 100).toFixed(1)}  {fmtPrice(def, price)}</text>
+                  </g>
+                );
+              })}
+            </g>
+          );
+        }
+        case 'range': {
+          if (!two || o.p2 === undefined || o.t2 === undefined) return null;
+          const bars = Math.round(Math.abs(o.t2 - o.t1) / tf);
+          const col = o.p2 >= o.p1 ? '#4cc38a' : '#e5484d';
+          return (
+            <g key={o.id} opacity={op}>
+              <rect x={Math.min(x1, x2)} y={Math.min(y1, y2)} width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)} fill={alpha(col, 0.14)} stroke={col} strokeDasharray="3 3" />
+              <line x1={(x1 + x2) / 2} x2={(x1 + x2) / 2} y1={y1} y2={y2} stroke={col} />
+              <text x={(x1 + x2) / 2} y={Math.min(y1, y2) - 6} textAnchor="middle" className="ovl-label" fill={col}>{fmtPrice(def, o.p2 - o.p1)} ({pct(o.p1, o.p2)}) · {bars} bars</text>
+            </g>
+          );
+        }
+        case 'long':
+        case 'short': {
+          if (!two || o.p2 === undefined) return null;
+          const dir = o.type === 'long' ? 1 : -1;
+          const reward = Math.abs(o.p2 - o.p1) || def.spread * 10;
+          const target = o.p1 + dir * reward;
+          const stop = o.p1 - (dir * reward) / 2;
+          const yt = yOf(target);
+          const ys = yOf(stop);
+          if (yt === null || ys === null) return null;
+          const xa = Math.min(x1, x2);
+          const w = Math.max(60, Math.abs(x2 - x1));
+          return (
+            <g key={o.id} opacity={op}>
+              <rect x={xa} y={Math.min(y1, yt)} width={w} height={Math.abs(yt - y1)} fill="rgba(76,195,138,0.18)" stroke="#4cc38a" strokeWidth={0.8} />
+              <rect x={xa} y={Math.min(y1, ys)} width={w} height={Math.abs(ys - y1)} fill="rgba(229,72,77,0.18)" stroke="#e5484d" strokeWidth={0.8} />
+              <line x1={xa} x2={xa + w} y1={y1} y2={y1} stroke="#e5e5e7" />
+              <text x={xa + 4} y={yt + (dir === 1 ? 12 : -4)} className="ovl-label" fill="#4cc38a">Target {fmtPrice(def, target)} ({pct(o.p1, target)})</text>
+              <text x={xa + 4} y={ys + (dir === 1 ? -4 : 12)} className="ovl-label" fill="#e5484d">Stop {fmtPrice(def, stop)}</text>
+              <text x={xa + 4} y={y1 - 4} className="ovl-label" fill="#e5e5e7">{o.type === 'long' ? 'LONG' : 'SHORT'} {fmtPrice(def, o.p1)} · R:R 2.00</text>
+            </g>
+          );
+        }
       }
     };
     for (const o of objects) overlay.push(drawObj(o));
-    if (tool && pending.current && preview) overlay.push(drawObj({ id: 'ghost', type: tool, t1: pending.current.t, p1: pending.current.p, t2: preview.t, p2: preview.p, color: '#e5e5e7' }, true));
+    const pp = pending.current;
+    if (tool && pp.length && preview) {
+      const pts = [...pp, preview];
+      overlay.push(drawObj({ id: 'ghost', type: tool, t1: pts[0].t, p1: pts[0].p, t2: pts[1]?.t, p2: pts[1]?.p, t3: pts[2]?.t, p3: pts[2]?.p, color: '#e5e5e7' }, true));
+    }
+    // extra levels (trade panel SL / TP preview)
+    for (const lv of props.levels ?? []) {
+      const y = yOf(lv.price);
+      if (y === null) continue;
+      overlay.push(
+        <g key={`lv${lv.label}`}>
+          <line x1={0} x2={plotW} y1={y} y2={y} stroke={lv.color} strokeDasharray="6 4" strokeWidth={1.2} />
+          <rect x={plotW - 108} y={y - 9} width={104} height={17} rx={4} fill={alpha(lv.color, 0.9)} />
+          <text x={plotW - 56} y={y + 4} textAnchor="middle" className="ovl-label" fill="#0b0b0d">{lv.label} {fmtPrice(def, lv.price)}</text>
+        </g>,
+      );
+    }
   }
 
   // countdown to bar close
   const q = quote(sym, now);
-  const left = Math.max(0, Math.floor(now / tf) * tf + tf - now);
+  const left = Math.max(0, bucketStart(now, tf) + tf - now);
   const yBid = paneH > 0 ? yOf(q.bid) : null;
   const cd = left >= 3600 ? `${Math.floor(left / 3600)}:${String(Math.floor((left % 3600) / 60)).padStart(2, '0')}:${String(Math.floor(left % 60)).padStart(2, '0')}` : `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
 
+  const cancelPress = () => {
+    if (press.current) window.clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  const firePress = (x: number, y: number) => {
+    cancelPress();
+    const cb = propsRef.current.onLongPress;
+    if (!cb || propsRef.current.tool) return;
+    const r = el.current?.getBoundingClientRect();
+    const lx = x - (r?.left ?? 0);
+    const ly = y - (r?.top ?? 0);
+    const pr = main.current?.coordinateToPrice(ly);
+    navigator.vibrate?.(12);
+    cb({ x: lx, y: ly, price: pr ?? null, time: timeOf(lx) });
+  };
+  const handlers = {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0 || propsRef.current.tool) return;
+      cancelPress();
+      const { clientX, clientY } = e;
+      press.current = { x: clientX, y: clientY, timer: window.setTimeout(() => firePress(clientX, clientY), 1000) };
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const p0 = press.current;
+      if (p0 && Math.hypot(e.clientX - p0.x, e.clientY - p0.y) > 9) cancelPress();
+    },
+    onPointerUp: cancelPress,
+    onPointerCancel: cancelPress,
+    onPointerLeave: cancelPress,
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      firePress(e.clientX, e.clientY);
+    },
+  };
+
   return (
-    <div className="chart" ref={el}>
+    <div className="chart" ref={el} {...handlers}>
       <svg className="overlay" width={plotW} height={paneH} style={{ width: plotW, height: paneH }}>
         {overlay}
       </svg>
       {toggles.countdown && q.open && yBid !== null && yBid > 8 && yBid < paneH - 8 && (
         <span className="countdown" style={{ top: yBid + 9, right: scaleW + 4 }}>{cd}</span>
       )}
-      {tool && <span className="toolhint">{TWO_POINT.includes(tool) ? (pending.current ? 'Tap the second point' : 'Tap the first point') : 'Tap the chart to place'}</span>}
+      {tool && <span className="toolhint">{OBJ_POINTS[tool] === 1 ? 'Tap the chart to place' : `Tap point ${pending.current.length + 1} of ${OBJ_POINTS[tool]}`}</span>}
     </div>
   );
 }

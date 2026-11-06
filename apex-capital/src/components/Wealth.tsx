@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { balanceCurve, MARGIN_CALL_LEVEL, START_BALANCE, type Metrics } from '../game/account.ts';
+import { balanceCurve, MARGIN_CALL_LEVEL, quotesFor, START_BALANCE, type Metrics } from '../game/account.ts';
+import { MARGIN_RULES, marginSnapshot } from '../game/margin.ts';
 import { DIVISIONS, divisionFor, divisionProgress, nextDivision } from '../game/tiers.ts';
 import { useGame } from '../game/store.ts';
 import { net, useNet, type LeaderRow } from '../online/net.ts';
@@ -10,22 +11,24 @@ import { useT } from '../i18n.ts';
 import { sfx } from '../sfx.ts';
 import { Avatar } from './Avatar.tsx';
 import { Badge } from './Badge.tsx';
+import { CompeteView } from './Compete.tsx';
 
-type Seg = 'rank' | 'board' | 'balance';
+type Seg = 'rank' | 'board' | 'compete' | 'balance';
 type Scope = 'world' | 'group' | 'friends';
 
-export function WealthTab({ m, onProfile }: { m: Metrics; onProfile: (id: string) => void }) {
+export function WealthTab({ m, onProfile, now, notify }: { m: Metrics; onProfile: (id: string) => void; now: number; notify: (title: string, body: string, tone: 'good' | 'bad' | 'info') => void }) {
   const t = useT();
   const [seg, setSeg] = useState<Seg>('rank');
   return (
     <div className="list">
       <div className="seg3 sticky">
-        {(['rank', 'board', 'balance'] as Seg[]).map((s) => (
+        {(['rank', 'board', 'compete', 'balance'] as Seg[]).map((s) => (
           <button key={s} className={seg === s ? 'on' : ''} onClick={() => { setSeg(s); sfx.tap(); }}>{t(`w.${s}`)}</button>
         ))}
       </div>
       {seg === 'rank' && <RankView m={m} />}
       {seg === 'board' && <Board onProfile={onProfile} />}
+      {seg === 'compete' && <CompeteView now={now} notify={notify} />}
       {seg === 'balance' && <BalanceView m={m} />}
     </div>
   );
@@ -168,6 +171,7 @@ function BalanceView({ m }: { m: Metrics }) {
         <div className="card"><span>Margin level</span><b className={`num ${mc ? 'down' : ''}`}>{m.level === null ? '—' : `${m.level.toFixed(0)}%`}</b></div>
         <div className="card"><span>Account</span><b className="num">#{a.login}</b></div>
       </div>
+      <MarginPanel />
       <div className="section"><span className="eyebrow">Balance curve</span><span className="eyebrow">{curve.length - 1} deals</span></div>
       <div className="card curve">
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
@@ -188,6 +192,40 @@ function BalanceView({ m }: { m: Metrics }) {
         <div><b>{a.blownCount}</b><span>Reviews</span></div>
       </div>
       <div className="hint" style={{ padding: '4px 16px 16px' }}>{net.mode === 'online' ? 'Your balance syncs to the global leaderboard every few seconds.' : 'Offline mode: the leaderboard fills with real players once you play online.'}</div>
+    </>
+  );
+}
+
+/** Cash / Position Value / Total Equity breakdown (margin.ts). */
+function MarginPanel() {
+  const g = useGame();
+  const a = g.account;
+  const t = Date.now() / 1000;
+  const s = marginSnapshot(a, quotesFor(a, t), t);
+  const isMargin = a.type === 'margin';
+  const pct = s.grossExposure > 0 ? Math.min(100, (s.totalEquity / s.grossExposure) * 100) : 100;
+  return (
+    <>
+      <div className="section">
+        <span className="eyebrow">{isMargin ? `Margin account · ${MARGIN_RULES.maxLeverage}:1` : 'Exposure'}</span>
+        {isMargin && <span className={`pill ${s.status}`}>{s.status === 'ok' ? 'Compliant' : s.status === 'warning' ? 'Near margin call' : 'Margin call'}</span>}
+      </div>
+      <div className="wgrid">
+        <div className="card"><span>Cash</span><b className={`num ${s.cash < 0 ? 'down' : ''}`}>{money(s.cash)}</b></div>
+        <div className="card"><span>Position value</span><b className="num">{money(s.positionValue)}</b></div>
+        <div className="card"><span>Total equity</span><b className="num">{money(s.totalEquity)}</b></div>
+        <div className="card"><span>Gross exposure</span><b className="num">{money(s.grossExposure)}</b></div>
+        {isMargin && <div className="card"><span>Maintenance ({MARGIN_RULES.maintenancePct * 100}%)</span><b className="num">{money(s.maintenanceRequirement)}</b></div>}
+        {isMargin && <div className="card"><span>Used margin (loan)</span><b className="num">{money(s.usedMargin)}</b></div>}
+        {isMargin && <div className="card"><span>Buying power</span><b className="num">{money(s.buyingPower)}</b></div>}
+        <div className="card"><span>Leverage</span><b className="num">{Number.isFinite(s.leverage) ? `${s.leverage.toFixed(2)}×` : '—'}</b></div>
+      </div>
+      {isMargin && s.grossExposure > 0 && (
+        <div className="card pad" style={{ margin: '0 16px 8px' }}>
+          <div className="mbar"><i style={{ width: `${pct}%` }} className={s.status} /><em style={{ left: `${MARGIN_RULES.maintenancePct * 100}%` }} /></div>
+          <small className="muted">Equity is {pct.toFixed(0)}% of position value · margin call below {MARGIN_RULES.maintenancePct * 100}%</small>
+        </div>
+      )}
     </>
   );
 }

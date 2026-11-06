@@ -83,9 +83,15 @@ export interface OrderRecord {
   note?: string;
 }
 
+export type AccountType = 'mt5' | 'margin';
+/** Max leverage on "Margin 2:1" accounts (see margin.ts). */
+export const MARGIN_ACCOUNT_LEVERAGE = 2;
+
 export interface AccountState {
   /** MT5-style account number. */
   login: number;
+  /** mt5 (default): per-symbol CFD leverage + 50% stop-out. margin: 2:1, 30% maintenance. */
+  type?: AccountType;
   balance: number;
   positions: Position[];
   orders: PendingOrder[];
@@ -105,11 +111,21 @@ export interface AccountState {
   lockedUntil?: number | null;
   /** Why it was frozen (shown on the review screen). */
   lockReason?: string | null;
+  /** Balance operations (competition buy-ins, prizes, refunds), newest first. */
+  credits?: BalanceOp[];
 }
 
-export function freshAccount(login: number, blownCount = 0): AccountState {
+export interface BalanceOp {
+  id: string;
+  at: number;
+  amount: number;
+  note: string;
+}
+
+export function freshAccount(login: number, blownCount = 0, type: AccountType = 'mt5'): AccountState {
   return {
     login,
+    type,
     balance: START_BALANCE,
     positions: [],
     orders: [],
@@ -136,9 +152,13 @@ export function positionProfit(p: Position, q: Quote): number {
   return pnlFor(SYMBOL_MAP[p.sym], (px - p.open) * p.side, p.lots, q.t);
 }
 
-export function requiredMargin(sym: string, lots: number, price: number, t: number): number {
-  const def = SYMBOL_MAP[sym];
-  return notional(def, lots, price, t) / def.leverage;
+export function leverageFor(sym: string, type: AccountType = 'mt5'): number {
+  const lev = SYMBOL_MAP[sym]?.leverage ?? 1;
+  return type === 'margin' ? Math.min(lev, MARGIN_ACCOUNT_LEVERAGE) : lev;
+}
+
+export function requiredMargin(sym: string, lots: number, price: number, t: number, type: AccountType = 'mt5'): number {
+  return notional(SYMBOL_MAP[sym], lots, price, t) / leverageFor(sym, type);
 }
 
 export interface Metrics {
@@ -156,7 +176,7 @@ export function metrics(acc: AccountState, quotes: Record<string, Quote>): Metri
   for (const p of acc.positions) {
     const q = quotes[p.sym] ?? quote(p.sym, Date.now() / 1000);
     floating += positionProfit(p, q);
-    margin += requiredMargin(p.sym, p.lots, p.open, q.t);
+    margin += requiredMargin(p.sym, p.lots, p.open, q.t, acc.type);
   }
   const equity = acc.balance + floating;
   return { balance: acc.balance, equity, floating, margin, free: equity - margin, level: margin > 0 ? (equity / margin) * 100 : null };
@@ -217,12 +237,12 @@ export function validatePending(type: PendingType, price: number, stopLimit: num
 
 /** Account balance after each closed deal, oldest first (for the equity curve). */
 export function balanceCurve(acc: AccountState): { t: number; balance: number }[] {
-  const deals = [...acc.history].sort((a, b) => a.closeTime - b.closeTime);
-  let bal = acc.balance - deals.reduce((s, d) => s + d.profit, 0);
+  const steps = [...acc.history.map((d) => ({ t: d.closeTime, v: d.profit })), ...(acc.credits ?? []).map((c) => ({ t: c.at, v: c.amount }))].sort((a, b) => a.t - b.t);
+  let bal = acc.balance - steps.reduce((s, d) => s + d.v, 0);
   const out = [{ t: acc.createdAt / 1000, balance: bal }];
-  for (const d of deals) {
-    bal += d.profit;
-    out.push({ t: d.closeTime, balance: bal });
+  for (const d of steps) {
+    bal += d.v;
+    out.push({ t: d.t, balance: bal });
   }
   return out;
 }
