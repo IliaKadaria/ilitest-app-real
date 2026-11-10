@@ -65,10 +65,13 @@ class CustomMarkets {
     const { data, error } = await sb.from('custom_markets').select('*').order('created_at');
     if (error) return;
     this.apply((data ?? []).map(fromRow));
+    if (this.live) return; // one realtime subscription; change events just re-pull
+    this.live = true;
     sb.channel('apex-markets')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'custom_markets' }, () => void this.sync())
       .subscribe();
   }
+  private live = false;
 
   async add(m: CustomMarket, me: { id: string; secret: string } | null, online: boolean): Promise<string | null> {
     const err = validate(m);

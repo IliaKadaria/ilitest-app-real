@@ -31,6 +31,7 @@ import {
 import { compactMoney, money, pnlClass } from '../format.ts';
 import { sfx } from '../sfx.ts';
 import { Badge } from './Badge.tsx';
+import { CompChart } from './CompChart.tsx';
 
 const ICON: Record<CompMode, string> = { whale: '🐋', roulette: '🎰', scoop: '🕵️', pump: '🚀' };
 const clock = (sec: number) => {
@@ -162,35 +163,6 @@ function CompCard({ mode, now, notify, onArena }: { mode: CompMode; now: number;
 
 // ====================================================================== arena
 
-function Spark({ c, sym, now, crowd }: { c: Competition; sym: string; now: number; crowd: number }) {
-  const W = 340;
-  const H = 120;
-  const from = now - 600;
-  const n = 120;
-  const pts = Array.from({ length: n + 1 }, (_, i) => {
-    const t = from + ((now - from) * i) / n;
-    return { t, p: compQuote(c, sym, t, crowd).mid };
-  });
-  const lo = Math.min(...pts.map((x) => x.p));
-  const hi = Math.max(...pts.map((x) => x.p));
-  const y = (v: number) => H - 6 - ((v - lo) / (hi - lo || v * 0.001 || 1)) * (H - 12);
-  const x = (i: number) => (i / n) * W;
-  const up = pts[n].p >= pts[0].p;
-  const path = pts.map((q, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(q.p).toFixed(1)}`).join(' ');
-  return (
-    <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="sparkfill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor={up ? 'var(--up)' : 'var(--down)'} stopOpacity="0.28" />
-          <stop offset="1" stopColor={up ? 'var(--up)' : 'var(--down)'} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={`${path} L${W},${H} L0,${H} Z`} fill="url(#sparkfill)" />
-      <path d={path} fill="none" stroke={up ? 'var(--up)' : 'var(--down)'} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
 function Arena({ c, now, notify, onBack }: { c: Competition; now: number; notify: (t: string, b: string, tone: 'good' | 'bad' | 'info') => void; onBack: () => void }) {
   const cs = useComps();
   const d = COMP_DEFS[c.mode];
@@ -269,7 +241,7 @@ function Arena({ c, now, notify, onBack }: { c: Competition; now: number; notify
       )}
       <div className="card arenachart">
         <div className="arenapx"><b>{def.name}</b><span className="num">{fmtPrice(def, q.bid)}</span></div>
-        <Spark c={c} sym={sym} now={now} crowd={crowd} />
+        <CompChart c={c} sym={sym} now={now} crowd={crowd} positions={play.positions} />
       </div>
       <div className="oneclick-bar" style={{ margin: '0 12px' }}>
         <button className="side sell" disabled={!started || over || !!play.eliminatedAt} onClick={() => fire(-1)}><span className="lbl">SELL</span><span className={`px num ${fmtPrice(def, q.bid).length > 10 ? 'long' : ''}`}>{fmtPrice(def, q.bid)}</span></button>

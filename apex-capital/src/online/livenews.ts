@@ -106,6 +106,8 @@ class LiveNewsStore {
     this.items = (data ?? []).map(fromRow);
     this.status = 'live';
     this.bump();
+    if (this.subscribed) return;
+    this.subscribed = true;
     sb.channel('apex-news')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'news_items' }, ({ new: row }) => {
         const n = fromRow(row as Record<string, unknown>);
@@ -117,6 +119,7 @@ class LiveNewsStore {
       })
       .subscribe();
   }
+  private subscribed = false;
 }
 
 function fromRow(r: Record<string, unknown>): LiveNews {

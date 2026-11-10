@@ -857,3 +857,7 @@ button { border-radius: 13px; }
 .arenahead .qname { min-width: 0; }
 .arenahead .qname b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .comphead .qname { min-width: 0; }
+.compchart { position: relative; height: 240px; margin: 0 -2px 4px; border-radius: 12px; overflow: hidden; }
+.comptf { display: flex; gap: 4px; margin: 0 0 6px; }
+.comptf button { min-height: 26px; padding: 0 10px; font: 500 11.5px var(--mono); background: transparent; border-color: transparent; color: var(--mute); border-radius: 8px; }
+.comptf button.on { color: var(--platinum); background: var(--graphite); border-color: var(--hair-2); }
